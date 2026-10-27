@@ -4033,6 +4033,19 @@ end
 -- GetIcon возвращает таблицу {Image, ImageRectSize, ImageRectOffset} или nil
 Library.IconCache = { }
 
+-- Показывает проблему с иконками прямо на экране (консоль смотреть не нужно)
+Library.IconError = function(Self, Text)
+    warn("[Library] " .. Text)
+    pcall(function()
+        Library:Notification({
+            Name = "Icons",
+            Description = Text,
+            Duration = 8,
+            Color = Color3.fromRGB(255, 80, 80)
+        })
+    end)
+end
+
 Library.LoadIcons = function(Self)
     if Library.IconModule ~= nil then
         return Library.IconModule or nil
@@ -4046,7 +4059,7 @@ Library.LoadIcons = function(Self)
         Library.IconModule = Module
     else
         Library.IconModule = false
-        warn("[Library] Failed to load icons from IconsUrl: " .. tostring(Module))
+        Library:IconError("Failed to load Icons.lua: " .. tostring(Module):sub(1, 150))
     end
 
     return Library.IconModule or nil
@@ -4078,7 +4091,7 @@ Library.GetIcon = function(Self, Icon)
     local Data = Module and Module.Get(Icon) or nil
 
     if not Data then
-        warn('[Library] Unknown icon "' .. Icon .. '"')
+        Library:IconError('Unknown icon "' .. Icon .. '"')
     end
 
     Library.IconCache[Icon] = Data or false
