@@ -40,6 +40,9 @@ local Library = {
     MenuKeybind = tostring(Enum.KeyCode.X),
 
     Directory = "vaping it",
+
+    -- Ссылка на твой Icons.lua (raw) в репозитории
+    IconsUrl = "https://raw.githubusercontent.com/YOUR_NAME/YOUR_REPO/main/Icons.lua",
     Folders = {
         Assets = "/Assets",
         Configs = "/Configs"
@@ -1676,12 +1679,13 @@ local Library = {
                         Parent = PageItems["Inactive"].Instance,
                         ImageColor3 = Library.Theme["Inactive Text"],
                         AnchorPoint = Vector2.new(0, 0.5),
-                        Image = Page.Icon,
+                        Image = "",
                         BackgroundTransparency = 1,
                         Position = UDim2.new(0, 0, 0.5, 1),
                         Size = UDim2.new(0, 20, 0, 20),
                         BorderSizePixel = 0
                     }):AddToTheme({ImageColor3 = 'Inactive Text'})
+                    Library:ApplyIcon(PageItems["Icon"].Instance, Page.Icon)
                     
 PageItems["Text"] = Library:Create("TextLabel", {
                         Name = "\0",
@@ -3825,12 +3829,13 @@ Library.Watermark = function(Self, Params)
                     Parent = Items["Inactive"].Instance,
                     ImageColor3 = Library.Theme["Inactive Text"],
                     AnchorPoint = Vector2.new(0, 0.5),
-                    Image = Page.Icon,
+                    Image = "",
                     BackgroundTransparency = 1,
                     Position = UDim2.new(0, 0, 0.5, 1),
                     Size = UDim2.new(0, 20, 0, 20),
                     BorderSizePixel = 0
                 }):AddToTheme({ImageColor3 = 'Inactive Text'})
+                Library:ApplyIcon(Items["Icon"].Instance, Page.Icon)
                 
                 Items["Text"] = Library:Create("TextLabel", {
                     Name = "\0",
@@ -4023,6 +4028,80 @@ end
             return setmetatable(Page, Library)
         end
 
+-- ICONS ------------------------------------------------------
+-- Icon может быть: "eye" (название из Icons.lua), "rbxassetid://123", 123 (число), "rbxthumb://..."
+-- GetIcon возвращает таблицу {Image, ImageRectSize, ImageRectOffset} или nil
+Library.IconCache = { }
+
+Library.LoadIcons = function(Self)
+    if Library.IconModule ~= nil then
+        return Library.IconModule or nil
+    end
+
+    local Success, Module = pcall(function()
+        return loadstring(game:HttpGet(Library.IconsUrl))()
+    end)
+
+    if Success and type(Module) == "table" and type(Module.Get) == "function" then
+        Library.IconModule = Module
+    else
+        Library.IconModule = false
+        warn("[Library] Failed to load icons from IconsUrl: " .. tostring(Module))
+    end
+
+    return Library.IconModule or nil
+end
+
+Library.GetIcon = function(Self, Icon)
+    if Icon == nil or Icon == "" then
+        return nil
+    end
+
+    if type(Icon) == "number" then
+        return { Image = "rbxassetid://" .. tostring(Icon) }
+    end
+
+    if type(Icon) ~= "string" then
+        return nil
+    end
+
+    if Icon:match("^rbxasset") or Icon:match("^rbxthumb") or Icon:match("^https?://") then
+        return { Image = Icon }
+    end
+
+    local Cached = Library.IconCache[Icon]
+    if Cached ~= nil then
+        return Cached or nil
+    end
+
+    local Module = Library:LoadIcons()
+    local Data = Module and Module.Get(Icon) or nil
+
+    if not Data then
+        warn('[Library] Unknown icon "' .. Icon .. '"')
+    end
+
+    Library.IconCache[Icon] = Data or false
+    return Data
+end
+
+-- Применяет иконку к уже созданному ImageLabel
+Library.ApplyIcon = function(Self, ImageInstance, Icon)
+    local Data = Library:GetIcon(Icon)
+    if not Data then
+        return false
+    end
+
+    ImageInstance.Image = Data.Image
+    if Data.ImageRectSize then
+        ImageInstance.ImageRectSize = Data.ImageRectSize
+        ImageInstance.ImageRectOffset = Data.ImageRectOffset or Vector2.new(0, 0)
+    end
+
+    return true
+end
+---------------------------------------------------------------
+
 Library.Section = function(Self, Params)
     Params = Params or { } 
 
@@ -4036,7 +4115,8 @@ Library.Section = function(Self, Params)
         Items = { },
     }
 
-    local HasIcon = Section.Icon ~= ""
+    local IconData = Library:GetIcon(Section.Icon)
+    local HasIcon = IconData ~= nil
 
     local Items = { } do 
         Items["Section"] = Library:Create("Frame", {
@@ -4074,7 +4154,9 @@ Library.Section = function(Self, Params)
                 Parent = Items["Top"].Instance,
                 ImageColor3 = Library.Theme["Accent"],
                 AnchorPoint = Vector2.new(0, 0.5),
-                Image = Section.Icon,
+                Image = IconData.Image,
+                ImageRectSize = IconData.ImageRectSize,
+                ImageRectOffset = IconData.ImageRectOffset,
                 BackgroundTransparency = 1,
                 Position = UDim2.new(0, 12, 0.5, 0),
                 Size = UDim2.new(0, 18, 0, 18),
@@ -6375,7 +6457,7 @@ end
             local ErrorColor = Color3.fromRGB(255, 80, 80)
 
             do -- Profiles
-                local ConfigsSection = SettingsPage:Section({Name = "Profiles", Icon = "rbxassetid://71354798783833", Side = 1})
+                local ConfigsSection = SettingsPage:Section({Name = "Profiles", Icon = "folder", Side = 1})
 
                 local ConfigsList = ConfigsSection:ListBox({
                     Flag = "Configs",
@@ -6480,7 +6562,7 @@ end
             end
 
             do -- Autoload
-                local AutoloadSection = SettingsPage:Section({Name = "Autoload", Icon = "rbxassetid://71354798783833", Side = 1})
+                local AutoloadSection = SettingsPage:Section({Name = "Autoload", Icon = "zap", Side = 1})
 
                 AutoloadSection:Button({
                     Name = "Set selected as autoload",
@@ -6510,7 +6592,7 @@ end
             end
 
             do -- Theming
-                local ThemingSection = SettingsPage:Section({Name = "Theming", Icon = "rbxassetid://71354798783833", Side = 2})
+                local ThemingSection = SettingsPage:Section({Name = "Theming", Icon = "palette", Side = 2})
                 local ThemeReady = false
 
                 ThemingSection:Dropdown({
@@ -6546,7 +6628,7 @@ end
             end
 
             do -- Menu
-                local MenuSection = SettingsPage:Section({Name = "Menu", Icon = "rbxassetid://71354798783833", Side = 2})
+                local MenuSection = SettingsPage:Section({Name = "Menu", Icon = "menu", Side = 2})
 
                 MenuSection:Label({Name = "Menu Keybind"}):Keybind({
                     Name = "Menu Keybind",
