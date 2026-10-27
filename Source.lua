@@ -90,6 +90,8 @@ local Library = {
     MascotClickSoundId = "rbxassetid://102774986031312",
     UIClickSound = nil,
     MascotClickSound = nil,
+    UIClickVolume = 0.65,
+    MascotClickVolume = 0.8,
 } do 
     Library.__index = Library
 
@@ -508,6 +510,20 @@ local Library = {
         return Library.MascotClickSoundId
     end
 
+    Library.SetUIClickVolume = function(Self, Volume)
+        local Value = math.clamp(tonumber(Volume) or 0.65, 0, 1)
+        Library.UIClickVolume = Value
+        if Library.UIClickSound then Library.UIClickSound.Volume = Value end
+        return Value
+    end
+
+    Library.SetMascotClickVolume = function(Self, Volume)
+        local Value = math.clamp(tonumber(Volume) or 0.8, 0, 1)
+        Library.MascotClickVolume = Value
+        if Library.MascotClickSound then Library.MascotClickSound.Volume = Value end
+        return Value
+    end
+
     Library.PlayUIClickSound = function(Self)
         local Sound = Library.UIClickSound
         if not Sound or not Sound.Parent or not Library.UIClickSoundId then return end
@@ -697,8 +713,13 @@ local Library = {
     end
 
     Library.FadeDescendants = function(Self, Visibility, Callback)
+        Library._FadeTokens = Library._FadeTokens or {}
+        local Object = Self.Instance
+        local Token = (Library._FadeTokens[Object] or 0) + 1
+        Library._FadeTokens[Object] = Token
+
         if Visibility then 
-            Self.Instance.Visible = true 
+            Object.Visible = true 
         end
 
         local NewTween 
@@ -723,20 +744,27 @@ local Library = {
         end
 
         if not NewTween then
+            if Library._FadeTokens[Object] ~= Token then
+                return
+            end
             if Callback and type(Callback) == "function" then 
                 Callback()
             end
 
-            Self.Instance.Visible = Visibility
+            Object.Visible = Visibility
             return
         end
 
         Library:Connect(NewTween.Completed, function()
+            if Library._FadeTokens[Object] ~= Token then
+                return
+            end
+
             if Callback and type(Callback) == "function" then 
                 Callback()
             end
 
-            Self.Instance.Visible = Visibility
+            Object.Visible = Visibility
         end)
     end
 
@@ -1332,13 +1360,13 @@ local Library = {
     Library.UIClickSound = Instance.new("Sound")
     Library.UIClickSound.Name = "UIClickSound"
     Library.UIClickSound.SoundId = Library.UIClickSoundId
-    Library.UIClickSound.Volume = 0.65
+    Library.UIClickSound.Volume = Library.UIClickVolume or 0.65
     Library.UIClickSound.Parent = SoundService
 
     Library.MascotClickSound = Instance.new("Sound")
     Library.MascotClickSound.Name = "MascotClickSound"
     Library.MascotClickSound.SoundId = Library.MascotClickSoundId
-    Library.MascotClickSound.Volume = 0.8
+    Library.MascotClickSound.Volume = Library.MascotClickVolume or 0.8
     Library.MascotClickSound.Parent = SoundService
 
     Library:Connect(UserInputService.InputBegan, function(Input)
@@ -1542,46 +1570,7 @@ local Library = {
                     BorderSizePixel = 0
                 })
 
-                if Colorpicker.ClipboardEnabled then
-                    Items["Clipboard"] = Library:Create("Frame", {
-                        Name = "\0",
-                        Parent = Items["Top"].Instance,
-                        AnchorPoint = Vector2.new(0, 0.5),
-                        Position = UDim2.new(0, 8, 0.5, 0),
-                        Size = UDim2.new(0, 150, 0, 30),
-                        BackgroundTransparency = 1,
-                        BorderSizePixel = 0
-                    })
-
-                    Library:Create("UIListLayout", {
-                        Name = "\0",
-                        Parent = Items["Clipboard"].Instance,
-                        FillDirection = Enum.FillDirection.Horizontal,
-                        VerticalAlignment = Enum.VerticalAlignment.Center,
-                        HorizontalAlignment = Enum.HorizontalAlignment.Left,
-                        Padding = UDim.new(0, 4),
-                        SortOrder = Enum.SortOrder.LayoutOrder
-                    })
-
-                    for _, ButtonData in ipairs({
-                        {Name = "Copy", Icon = "copy"},
-                        {Name = "Paste", Icon = "clipboard"},
-                    }) do
-                        local Button = Library:Create("ImageButton", {
-                            Name = "\0",
-                            Parent = Items["Clipboard"].Instance,
-                            Size = UDim2.new(0, 27, 0, 27),
-                            BackgroundColor3 = Library.Theme["Tab"],
-                            BackgroundTransparency = 0,
-                            BorderSizePixel = 0,
-                            AutoButtonColor = false,
-                            ImageColor3 = Library.Theme["Inactive Text"],
-                            Image = "",
-                            Active = true,
-                            LayoutOrder = ButtonData.Name == "Copy" and 1 or 2
-                        }):AddToTheme({BackgroundColor3 = "Tab", ImageColor3 = "Inactive Text"})
-
-                        Library:Create("UICorner", {
+                Library:Create("UICorner", {
                             Name = "\0",
                             Parent = Button.Instance,
                             CornerRadius = UDim.new(0, 5)
@@ -1715,69 +1704,6 @@ local Library = {
                 end
 
                 return nil
-            end
-
-            function Colorpicker:Copy()
-                if not SetClipboard then
-                    return false
-                end
-
-                return pcall(SetClipboard, "#" .. Colorpicker.HexValue)
-            end
-
-            function Colorpicker:Paste()
-                if not GetClipboard then
-                    return false
-                end
-
-                local Success, Text = pcall(GetClipboard)
-                if not Success then
-                    return false
-                end
-
-                local Color = ParseClipboardColor(Text)
-                if not Color then
-                    return false
-                end
-
-                Colorpicker:Set(Color, Colorpicker.Alpha)
-                return true
-            end
-
-            if Items["Copy"] then
-                Items["Copy"]:OnHover(function()
-                    Items["Copy"]:Tween({BackgroundColor3 = Library.Theme["Hovered Element"], ImageColor3 = Library.Theme.Text})
-                end, function()
-                    Items["Copy"]:Tween({BackgroundColor3 = Library.Theme.Tab, ImageColor3 = Library.Theme["Inactive Text"]})
-                end)
-
-                Items["Copy"]:Connect("MouseButton1Down", function()
-                    Colorpicker:Copy()
-                end)
-                Items["Copy"]:Connect("MouseButton1Click", function()
-                    Colorpicker:Copy()
-                end)
-                Items["Copy"]:Connect("Activated", function()
-                    Colorpicker:Copy()
-                end)
-            end
-
-            if Items["Paste"] then
-                Items["Paste"]:OnHover(function()
-                    Items["Paste"]:Tween({BackgroundColor3 = Library.Theme["Hovered Element"], ImageColor3 = Library.Theme.Text})
-                end, function()
-                    Items["Paste"]:Tween({BackgroundColor3 = Library.Theme.Tab, ImageColor3 = Library.Theme["Inactive Text"]})
-                end)
-
-                Items["Paste"]:Connect("MouseButton1Down", function()
-                    Colorpicker:Paste()
-                end)
-                Items["Paste"]:Connect("MouseButton1Click", function()
-                    Colorpicker:Paste()
-                end)
-                Items["Paste"]:Connect("Activated", function()
-                    Colorpicker:Paste()
-                end)
             end
 
             if Items["HexInput"] then
@@ -2783,6 +2709,7 @@ end
 
                     if ListItem then
                         ListItem:Set(Keybind.Name, Keybind.Value)
+                        ListItem:SetStatus(Keybind.Toggled)
                     end
                 elseif type(Key) == "table" then
                     local RealKey = Key.Key == "Backspace" and "None" or Key.Key
@@ -2920,6 +2847,7 @@ Library.Watermark = function(Self, Params)
                 Logo = Params.Logo or Params.logo or Self.Logo,
 
                 Window = Self,
+                Visible = true,
                 Items = { }
             }
 
@@ -2936,6 +2864,22 @@ Library.Watermark = function(Self, Params)
                 }):AddToTheme({BackgroundColor3 = 'Inline'})
                 
                 Items["Watermark"]:MakeDraggable()
+                local WatermarkPressPosition
+                Items["Watermark"]:Connect("InputBegan", function(Input)
+                    if Input.UserInputType == Enum.UserInputType.MouseButton1 then
+                        WatermarkPressPosition = Input.Position
+                    end
+                end)
+                Items["Watermark"]:Connect("InputEnded", function(Input)
+                    if Input.UserInputType ~= Enum.UserInputType.MouseButton1 or not WatermarkPressPosition then return end
+                    local Delta = Input.Position - WatermarkPressPosition
+                    WatermarkPressPosition = nil
+                    if Delta.Magnitude > 5 then return end
+                    local WindowObject = Watermark.Window
+                    if WindowObject and WindowObject.SetOpen then
+                        WindowObject:SetOpen(not WindowObject.IsOpen)
+                    end
+                end)
                 
                 Library:Create("UICorner", {
                     Name = "\0",
@@ -3118,7 +3062,10 @@ Library.Watermark = function(Self, Params)
             end
 
             function Watermark:SetVisibility(Bool)
-                Items["Watermark"].Instance.Visible = Bool
+                Bool = Bool and true or false
+                if Watermark.Visible == Bool then return end
+                Watermark.Visible = Bool
+                Items["Watermark"]:FadeDescendants(Bool)
             end
 
             function Watermark:SetText(Text)
@@ -3140,6 +3087,7 @@ Library.Watermark = function(Self, Params)
                 Icon = Params.Icon or Params.icon or "",
                 Keys = { },
                 Window = Self,
+                Visible = true,
                 Items = { }
             }
 
@@ -3173,8 +3121,8 @@ Library.Watermark = function(Self, Params)
                     Items["Icon"] = Library:Create("ImageLabel", {
                         Name = "\0", Parent = Items["Top"].Instance, BackgroundTransparency = 1,
                         AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 10, 0.5, 0),
-                        Size = UDim2.new(0, 16, 0, 16), BorderSizePixel = 0, ImageColor3 = Library.Theme["Inactive Text"]
-                    }):AddToTheme({ImageColor3 = "Inactive Text"})
+                        Size = UDim2.new(0, 16, 0, 16), BorderSizePixel = 0, ImageColor3 = Library.Theme["Accent"]
+                    }):AddToTheme({ImageColor3 = "Accent"})
                     Library:ApplyIcon(Items["Icon"].Instance, KeybindList.Icon)
                 end
 
@@ -3318,31 +3266,31 @@ Library.Watermark = function(Self, Params)
                 end
 
                 function NewKey:SetStatus(Bool)
-                    if NewKey.Active == Bool then
+                    Bool = Bool and true or false
+                    NewKey.Active = Bool
+                    NewKey.StatusToken += 1
+                    local Token = NewKey.StatusToken
+                    local KeyIsAssigned = NewKey.Key and tostring(NewKey.Key) ~= "None" and tostring(NewKey.Key) ~= ""
+
+                    -- Keybind List shows every assigned bind, even when disabled.
+                    -- Disabled = gray, enabled = accent/white. No stale hide/show callbacks.
+                    if not KeyIsAssigned then
+                        RowItems["NewKey"].Instance.Visible = false
                         return
                     end
 
-                    NewKey.StatusToken += 1
-                    local Token = NewKey.StatusToken
-                    NewKey.Active = Bool
-
-                    if Bool then
-                        RowItems["NewKey"].Instance.Visible = true
-                        RowItems["NewKey"]:Tween({Size = UDim2.new(1, 0, 0, RowSlot)}, KeybindTweenInfo)
-
-                        RowItems["Text"]:Tween({TextTransparency = 0, Position = UDim2.new(0, 0, 0, RowHeight / 2)}, KeybindTweenInfo)
-                        RowItems["Key"]:Tween({TextTransparency = 0, Position = UDim2.new(1, 0, 0, RowHeight / 2)}, KeybindTweenInfo)
-                    else
-                        RowItems["NewKey"]:Tween({Size = UDim2.new(1, 0, 0, 0)}, KeybindTweenInfo)
-                        RowItems["Text"]:Tween({TextTransparency = 1, Position = UDim2.new(0, -SlideOffset, 0, RowHeight / 2)}, KeybindTweenInfo)
-                        RowItems["Key"]:Tween({TextTransparency = 1, Position = UDim2.new(1, SlideOffset, 0, RowHeight / 2)}, KeybindTweenInfo)
-
-                        task.delay(Library.Animation.Time, function()
-                            if Token == NewKey.StatusToken and not NewKey.Active and RowItems["NewKey"].Instance.Parent then
-                                RowItems["NewKey"].Instance.Visible = false
-                            end
-                        end)
-                    end
+                    RowItems["NewKey"].Instance.Visible = true
+                    RowItems["Text"]:Tween({
+                        TextTransparency = 0,
+                        TextColor3 = Bool and Library.Theme["Text"] or Library.Theme["Inactive Text"],
+                        Position = UDim2.new(0, 0, 0, RowHeight / 2)
+                    }, KeybindTweenInfo)
+                    RowItems["Key"]:Tween({
+                        TextTransparency = 0,
+                        TextColor3 = Bool and Library.Theme["Accent"] or Library.Theme["Inactive Text"],
+                        Position = UDim2.new(1, 0, 0, RowHeight / 2)
+                    }, KeybindTweenInfo)
+                    RowItems["NewKey"]:Tween({Size = UDim2.new(1, 0, 0, RowSlot)}, KeybindTweenInfo)
                 end
 
                 function NewKey:Remove()
@@ -3360,7 +3308,10 @@ Library.Watermark = function(Self, Params)
             end
 
             function KeybindList:SetVisibility(Bool)
-                Items["KeybindList"].Instance.Visible = Bool
+                Bool = Bool and true or false
+                if KeybindList.Visible == Bool then return end
+                KeybindList.Visible = Bool
+                Items["KeybindList"]:FadeDescendants(Bool)
             end
 
             function KeybindList:SetText(Text)
@@ -3376,12 +3327,6 @@ Library.Watermark = function(Self, Params)
 
             Library.KeyList = KeybindList
             Self.KeybindList = KeybindList
-
-            -- Always show the key used to open/close the GUI. It is not a feature toggle,
-            -- so it stays visible in the list while the GUI itself is enabled.
-            local GuiKeyItem = KeybindList:Add("GUI", tostring(Library.MenuKeybind):gsub("Enum.KeyCode.", ""))
-            Library.GUIKeybindListItem = GuiKeyItem
-            GuiKeyItem:SetStatus(true)
 
             return setmetatable(KeybindList, Library)
         end
@@ -3574,6 +3519,7 @@ Library.Watermark = function(Self, Params)
                 Window = Self,
                 Player = nil,
                 Spinning = false,
+                Visible = true,
                 Items = { }
             }
 
@@ -3620,8 +3566,8 @@ Library.Watermark = function(Self, Params)
                     Items["Icon"] = Library:Create("ImageLabel", {
                         Name = "\0", Parent = Items["Top"].Instance, BackgroundTransparency = 1,
                         AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 10, 0.5, 0),
-                        Size = UDim2.new(0, 16, 0, 16), BorderSizePixel = 0, ImageColor3 = Library.Theme["Inactive Text"]
-                    }):AddToTheme({ImageColor3 = "Inactive Text"})
+                        Size = UDim2.new(0, 16, 0, 16), BorderSizePixel = 0, ImageColor3 = Library.Theme["Accent"]
+                    }):AddToTheme({ImageColor3 = "Accent"})
                     Library:ApplyIcon(Items["Icon"].Instance, ESPPreview.Icon)
                 end
 
@@ -3869,7 +3815,10 @@ Library.Watermark = function(Self, Params)
             })
 
             function ESPPreview:SetVisibility(Bool)
-                Items["ESPPreview"].Instance.Visible = Bool
+                Bool = Bool and true or false
+                if ESPPreview.Visible == Bool then return end
+                ESPPreview.Visible = Bool
+                Items["ESPPreview"]:FadeDescendants(Bool)
             end
 
             function ESPPreview:SetText(Text)
@@ -7465,24 +7414,24 @@ end
                 MascotSection:Slider({
                     Name = "Position X",
                     Flag = "Mascot/PositionX",
-                    Min = -100,
-                    Max = 800,
-                    Default = MascotObject and MascotObject.Offset.X or 6,
+                    Min = -400,
+                    Max = 400,
+                    Default = -222,
                     Decimals = 0,
                     Callback = function(Value)
-                        if MascotObject then MascotObject:SetPosition(Value, nil, nil) end
+                        if MascotObject and MascotObject.SetCenteredPosition then MascotObject:SetCenteredPosition(Value, nil) end
                     end
                 })
 
                 MascotSection:Slider({
                     Name = "Position Y",
                     Flag = "Mascot/PositionY",
-                    Min = -100,
-                    Max = 600,
-                    Default = MascotObject and MascotObject.Offset.Y or 6,
+                    Min = -400,
+                    Max = 400,
+                    Default = -333,
                     Decimals = 0,
                     Callback = function(Value)
-                        if MascotObject then MascotObject:SetPosition(nil, Value, nil) end
+                        if MascotObject and MascotObject.SetCenteredPosition then MascotObject:SetCenteredPosition(nil, Value) end
                     end
                 })
 
@@ -7519,6 +7468,32 @@ end
                     Callback = function(Value)
                         if MascotObject then
                             MascotObject:SetClickSound(Value == "None" and nil or "102774986031312")
+                        end
+                    end
+                })
+
+                MascotSection:Slider({
+                    Name = "Click Sound Volume",
+                    Flag = "Mascot/ClickSoundVolume",
+                    Min = 0, Max = 100, Decimals = 0, Suffix = "%",
+                    Default = 80,
+                    Callback = function(Value)
+                        if Library.SetMascotClickVolume then Library:SetMascotClickVolume(Value / 100) end
+                    end
+                })
+
+                MascotSection:SubButton({
+                    Name = "Reset to Default",
+                    ConfirmText = "reset mascot?",
+                    ConfirmTime = 1.5,
+                    Callback = function()
+                        if not MascotObject then return end
+                        MascotObject:SetSize(120)
+                        MascotObject:SetRotation(0)
+                        if MascotObject.SetCenteredPosition then
+                            MascotObject:SetCenteredPosition(-222, -333)
+                        else
+                            MascotObject:SetPosition(6, 12, nil)
                         end
                     end
                 })
@@ -7593,6 +7568,16 @@ end
                     Default = "Simple click",
                     Callback = function(Value)
                         Library:SetUIClickSound(Value == "None" and nil or "88442833509532")
+                    end
+                })
+
+                MenuSection:Slider({
+                    Name = "UI Click Volume",
+                    Flag = "UIClickVolume",
+                    Min = 0, Max = 100, Decimals = 0, Suffix = "%",
+                    Default = 65,
+                    Callback = function(Value)
+                        if Library.SetUIClickVolume then Library:SetUIClickVolume(Value / 100) end
                     end
                 })
 
