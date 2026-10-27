@@ -42,7 +42,7 @@ local Library = {
     Directory = "vaping it",
 
     -- Ссылка на твой Icons.lua (raw) в репозитории
-    IconsUrl = "https://raw.githubusercontent.com/xolylol/dogy-visuals-ui/main/lucide-roblox.luau",
+    IconsUrl = "https://raw.githubusercontent.com/YOUR_NAME/YOUR_REPO/main/Icons.lua",
     Folders = {
         Assets = "/Assets",
         Configs = "/Configs"
@@ -2863,7 +2863,7 @@ Library.Watermark = function(Self, Params)
 
                 local Color = GetInactiveRGB()
                 Items["FPSText"].Instance.Text = string.format('FPS: <font color="%s">%d</font>', Color, FPS)
-                Items["PingText"].Instance.Text = string.format('PING: <font color="%s">%ms</font>', Color, GetPing())
+                Items["PingText"].Instance.Text = string.format('PING: <font color="%s">%dms</font>', Color, GetPing())
             end)
 
             function Watermark:Center()
