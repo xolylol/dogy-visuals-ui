@@ -510,20 +510,6 @@ local Library = {
         return Library.MascotClickSoundId
     end
 
-    Library.SetUIClickVolume = function(Self, Volume)
-        local Value = math.clamp(tonumber(Volume) or Library.UIClickVolume or 0.65, 0, 1)
-        Library.UIClickVolume = Value
-        if Library.UIClickSound then Library.UIClickSound.Volume = Value end
-        return Value
-    end
-
-    Library.SetMascotClickVolume = function(Self, Volume)
-        local Value = math.clamp(tonumber(Volume) or Library.MascotClickVolume or 0.8, 0, 1)
-        Library.MascotClickVolume = Value
-        if Library.MascotClickSound then Library.MascotClickSound.Volume = Value end
-        return Value
-    end
-
     Library.PlayUIClickSound = function(Self)
         local Sound = Library.UIClickSound
         if not Sound or not Sound.Parent or not Library.UIClickSoundId then return end
@@ -1509,7 +1495,7 @@ local Library = {
                 Flag = Data.Flag,
                 IsOpen = false,
                 Mini = Data.Mini == true,
-                ClipboardEnabled = false,
+                ClipboardEnabled = Data.Clipboard ~= false and Data.clipboard ~= false,
 
                 AnimationEnabled = false,
                 AnimationMode = "Linear",
@@ -1947,7 +1933,7 @@ local Library = {
                 local SlideX = math.clamp((Input.Position.X - Items["Palette"].Instance.AbsolutePosition.X) / Items["Palette"].Instance.AbsoluteSize.X, 0, 0.935)
                 local SlideY = math.clamp((Input.Position.Y - Items["Palette"].Instance.AbsolutePosition.Y) / Items["Palette"].Instance.AbsoluteSize.Y, 0, 0.92)
     
-                Items["PaletteDragger"].Instance.Position = UDim2.new(SlideX, 0, SlideY, 0)
+                Items["PaletteDragger"]:Tween({Position = UDim2.new(SlideX, 0, SlideY, 0)}, TweenInfo.new(Library.Animation.Time, Enum.EasingStyle.Quart, Enum.EasingDirection.Out))
                 Colorpicker:Update()
             end
             
@@ -1965,7 +1951,7 @@ local Library = {
     
                 local SlideY = math.clamp((Input.Position.Y - Items["Hue"].Instance.AbsolutePosition.Y) / Items["Hue"].Instance.AbsoluteSize.Y, 0, 0.915)
     
-                Items["HueDragger"].Instance.Position = UDim2.new(0, 0, SlideY, 0)
+                Items["HueDragger"]:Tween({Position = UDim2.new(0, 0, SlideY, 0)}, TweenInfo.new(Library.Animation.Time, Enum.EasingStyle.Quart, Enum.EasingDirection.Out))
                 Colorpicker:Update()
             end
     
@@ -1983,7 +1969,7 @@ local Library = {
     
                 local SlideX = math.clamp((Input.Position.X - Items["Alpha"].Instance.AbsolutePosition.X) / Items["Alpha"].Instance.AbsoluteSize.X, 0, 0.915)
     
-                Items["AlphaDragger"].Instance.Position = UDim2.new(SlideX, 0, 0, 0)
+                Items["AlphaDragger"]:Tween({Position = UDim2.new(SlideX, 0, 0, 0)}, TweenInfo.new(Library.Animation.Time, Enum.EasingStyle.Quart, Enum.EasingDirection.Out))
                 Colorpicker:Update(true)
             end
     
@@ -2850,10 +2836,8 @@ end
     
                     Key = IsBackspace and "None" or Key.Name
     
-                    local KeyString = Keys[Keybind.Key] or tostring(Key) or "None"
-                    local TextToDisplay = tostring(KeyString)
-                    TextToDisplay = TextToDisplay:gsub("Enum%.KeyCode%.", ""):gsub("Enum%.UserInputType%.", "")
-                    TextToDisplay = TextToDisplay:gsub("KeyCode%.", ""):gsub("UserInputType%.", "")
+                    local KeyString = Keys[Keybind.Key] or string.gsub(Key, "Enum.", "") or "None"
+                    local TextToDisplay = string.gsub(string.gsub(KeyString, "KeyCode.", ""), "UserInputType.", "") or "None"
     
                     Keybind.Value = TextToDisplay
                     Items["KeyButton"].Instance.Text = TextToDisplay
@@ -2885,10 +2869,10 @@ end
                         Keybind:SetMode()
                     end
     
-                    local KeyString = Keys[Keybind.Key] or tostring(RealKey) or "None"
-                    local TextToDisplay = tostring(KeyString)
-                    TextToDisplay = TextToDisplay:gsub("Enum%.KeyCode%.", ""):gsub("Enum%.UserInputType%.", "")
-                    TextToDisplay = TextToDisplay:gsub("KeyCode%.", ""):gsub("UserInputType%.", "")
+                    local KeyString = Keys[Keybind.Key] or string.gsub(tostring(RealKey), "Enum.", "") or RealKey
+                    local TextToDisplay = KeyString and string.gsub(string.gsub(KeyString, "KeyCode.", ""), "UserInputType.", "") or "None"
+    
+                    TextToDisplay = string.gsub(string.gsub(KeyString, "KeyCode.", ""), "UserInputType.", "")
     
                     Keybind.Value = TextToDisplay
                     Items["KeyButton"].Instance.Text = TextToDisplay
@@ -3014,6 +2998,24 @@ end
             return Keybind, Items 
         end
 
+Library.SetUIClickVolume = function(Self, Volume)
+    Volume = tonumber(Volume)
+    if not Volume then return end
+    Self.UIClickVolume = math.clamp(Volume, 0, 1)
+    if Self.UIClickSound then
+        Self.UIClickSound.Volume = Self.UIClickVolume
+    end
+end
+
+Library.SetMascotClickVolume = function(Self, Volume)
+    Volume = tonumber(Volume)
+    if not Volume then return end
+    Self.MascotClickVolume = math.clamp(Volume, 0, 1)
+    if Self.MascotClickSound then
+        Self.MascotClickSound.Volume = Self.MascotClickVolume
+    end
+end
+
 Library.Watermark = function(Self, Params)
             Params = Params or { }
 
@@ -3038,21 +3040,6 @@ Library.Watermark = function(Self, Params)
                 }):AddToTheme({BackgroundColor3 = 'Inline'})
                 
                 Items["Watermark"]:MakeDraggable()
-                local WatermarkPressPosition
-                Items["Watermark"]:Connect("InputBegan", function(Input)
-                    if Input.UserInputType == Enum.UserInputType.MouseButton1 then
-                        WatermarkPressPosition = Input.Position
-                    end
-                end)
-                Items["Watermark"]:Connect("InputEnded", function(Input)
-                    if Input.UserInputType ~= Enum.UserInputType.MouseButton1 or not WatermarkPressPosition then return end
-                    local Delta = Input.Position - WatermarkPressPosition
-                    WatermarkPressPosition = nil
-                    if Delta.Magnitude > 5 then return end
-                    if Watermark.Window and Watermark.Window.SetOpen then
-                        Watermark.Window:SetOpen(not Watermark.Window.IsOpen)
-                    end
-                end)
                 
                 Library:Create("UICorner", {
                     Name = "\0",
@@ -4262,8 +4249,8 @@ Library.Watermark = function(Self, Params)
 
             local Mascot = {
                 Url = "",
+                Rotation = Params.Rotation or Params.rotation or 0,
                 Size = Params.Size or Params.size or Vector2.new(120, 120),
-		Rotation = Params.Rotation or Params.rotation or 0,
                 Offset = Params.Offset or Params.offset or Vector2.new(-222, -333),
                 ZIndex = Params.ZIndex or Params.zindex or 3,
                 PressScale = Params.PressScale or Params.pressscale or Vector2.new(1.05, 0.88),
@@ -4292,6 +4279,7 @@ Library.Watermark = function(Self, Params)
                     AnchorPoint = Vector2.new(0.5, 1),
                     Position = UDim2.new(0, Mascot.Offset.X + Mascot.Size.X / 2, 0, Mascot.Offset.Y),
                     Size = BaseSize,
+                    Rotation = Mascot.Rotation,
                     BackgroundTransparency = 1,
                     BorderSizePixel = 0,
                     AutoButtonColor = false,
@@ -4465,27 +4453,31 @@ Library.Watermark = function(Self, Params)
 
             function Mascot:GetCenteredPosition()
                 local Parent = Items["Image"].Instance.Parent
-                local ParentSize = Parent and Parent.AbsoluteSize or Vector2.new(0, 0)
-                local Size = Items["Image"].Instance.AbsoluteSize
-                if ParentSize.X <= 0 or ParentSize.Y <= 0 then
-                    return Vector2.new(0, 0)
+                if not Parent then
+                    return Mascot.Offset.X, Mascot.Offset.Y
                 end
-                return Vector2.new(
-                    Mascot.Offset.X - ((ParentSize.X - Size.X) / 2),
-                    Mascot.Offset.Y - ((ParentSize.Y - Size.Y) / 2)
-                )
+
+                local ParentSize = Parent.AbsoluteSize
+                return Mascot.Offset.X + Mascot.Size.X / 2 - ParentSize.X / 2,
+                    Mascot.Offset.Y - Mascot.Size.Y / 2 - ParentSize.Y / 2
             end
 
             function Mascot:SetCenteredPosition(X, Y)
+                X = tonumber(X) or 0
+                Y = tonumber(Y) or 0
+
                 local Parent = Items["Image"].Instance.Parent
-                local ParentSize = Parent and Parent.AbsoluteSize or Vector2.new(0, 0)
-                local Size = Items["Image"].Instance.AbsoluteSize
-                if ParentSize.X <= 0 or ParentSize.Y <= 0 then return end
-                local NewX = tonumber(X)
-                local NewY = tonumber(Y)
-                if NewX then NewX = NewX + ((ParentSize.X - Size.X) / 2) end
-                if NewY then NewY = NewY + ((ParentSize.Y - Size.Y) / 2) end
-                Mascot:SetPosition(NewX, NewY, nil)
+                if not Parent then
+                    Mascot:SetPosition(X, Y, Mascot.ZIndex)
+                    return
+                end
+
+                local ParentSize = Parent.AbsoluteSize
+                Mascot:SetPosition(
+                    ParentSize.X / 2 + X - Mascot.Size.X / 2,
+                    ParentSize.Y / 2 + Y + Mascot.Size.Y / 2,
+                    Mascot.ZIndex
+                )
             end
 
             function Mascot:SetPosition(X, Y, Z)
@@ -4537,6 +4529,15 @@ Library.Watermark = function(Self, Params)
                 Items["Image"].Instance.Rotation = Mascot.Rotation
             end
 
+            function Mascot:SetClickSoundVolume(Value)
+                local Number = tonumber(Value)
+                if not Number then return end
+                Mascot.ClickSoundVolume = math.clamp(Number, 0, 1)
+                if Library.MascotClickSound then
+                    Library.MascotClickSound.Volume = Mascot.ClickSoundVolume
+                end
+            end
+
             function Mascot:SetClickSound(SoundId)
                 Mascot.ClickSound = SoundId
                 return Library:SetMascotClickSound(SoundId)
@@ -4567,9 +4568,11 @@ Library.Watermark = function(Self, Params)
 
                 Mascot.CurrentMascot = Name
                 Mascot:SetSize(Data.Size or Mascot.Size.X)
+                Mascot:SetRotation(Data.Rotation or Data.rotation or Mascot.Rotation or 0)
                 local Offset = Data.Offset or Mascot.Offset
                 Mascot:SetPosition(Offset.X, Offset.Y, Data.ZIndex or Mascot.ZIndex)
                 Mascot:SetClickSound(Data.ClickSound or Params.ClickSound or "102774986031312")
+                Mascot:SetClickSoundVolume(Data.ClickSoundVolume or Data.clickSoundVolume or Mascot.ClickSoundVolume or Library.MascotClickVolume or 0.8)
                 Mascot:SetUrl(Data.Url)
                 return true
             end
@@ -4767,14 +4770,6 @@ Library.Watermark = function(Self, Params)
 
             local Size = GetSize()
             local X = Size.X
-
-
-	function Mascot:SetClickSoundVolume(Value)
-		self.ClickSoundVolume = math.clamp(tonumber(Value) or 0.8, 0, 1)
-		if self.ClickSoundInstance then
-			self.ClickSoundInstance.Volume = self.ClickSoundVolume
-		end
-	end
 
 function Page:Turn()
     local Old = Page.Window.Current 
@@ -5807,14 +5802,18 @@ end
                     Slider.Value = Library:Round(math.clamp(Value, Slider.Min, Slider.Max), Slider.Decimals)
                 end
 
-                local Percent = Range == 0 and 0 or math.clamp((Slider.Value - Slider.Min) / Range, 0, 1)
+                local FillPercent = Range == 0 and 0 or math.clamp((Slider.Value - Slider.Min) / Range, 0, 1)
+                Items["Accent"]:Tween({Size = UDim2.new(FillPercent, 0, 1, 0)}, TweenInfo.new(Library.Animation.Time, Enum.EasingStyle.Quart, Enum.EasingDirection.Out))
+                Slider:AnimateValue(Slider.Value)
 
-                -- Values are intentionally immediate: no visual-number interpolation.
-                Items["Value"].Instance.Text = string.format("%s%s", Slider.Value, Slider.Suffix)
-                Items["Accent"].Instance.Size = UDim2.new(Percent, 0, 1, 0)
-                Items["DraggerOutline"].Instance.Position = UDim2.new(Percent, (12 / 2) - (Percent * 12), 0.5, 0)
-                Items["Accent"].Instance.BackgroundTransparency = Slider.Value == Slider.Min and 1 or 0
-                Slider.DisplayValue = Slider.Value
+                local Percent = Range == 0 and 0 or math.clamp((Slider.Value - Slider.Min) / Range, 0, 1)
+                Items["DraggerOutline"]:Tween({Position = UDim2.new(Percent, (12 / 2) - (Percent * 12), 0.5, 0)}, TweenInfo.new(Library.Animation.Time, Enum.EasingStyle.Quart, Enum.EasingDirection.Out))
+
+                if Slider.Value == Slider.Min then 
+                    Items["Accent"]:Tween({BackgroundTransparency = 1})
+                else
+                    Items["Accent"]:Tween({BackgroundTransparency = 0})
+                end
 
                 Flags[Slider.Flag] = Slider.Value
                 Library:SafeCall(Slider.Callback, Slider.Value)
