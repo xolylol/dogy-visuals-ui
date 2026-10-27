@@ -1543,7 +1543,7 @@ local Library = {
                 -- Tabs are intentionally removed from colorpickers.
                 -- Keep an invisible Pages container only for backwards compatibility.
                 Items["Pages"] = Library:Create("Frame", {
-                    Name = " ",
+                    Name = "\0",
                     Parent = Items["Top"].Instance,
                     BackgroundTransparency = 1,
                     Visible = false,
@@ -1553,7 +1553,7 @@ local Library = {
                 })
 
                 Library:Create("Frame", {
-                    Name = " ",
+                    Name = "\0",
                     Parent = Items["Top"].Instance,
                     Position = UDim2.new(0, 0, 1, 0),
                     Size = UDim2.new(1, 0, 0, 1),
