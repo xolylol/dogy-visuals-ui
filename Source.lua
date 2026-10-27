@@ -1510,8 +1510,8 @@ local Library = {
                     Parent = Items["Top"].Instance,
                     AnchorPoint = Vector2.new(1, 0),
                     BackgroundTransparency = 1,
-                    Position = UDim2.new(1, 0, 0, 0),
-                    Size = UDim2.new(1, 0, 1, 0),
+                    Position = UDim2.new(1, -8, 0, 0),
+                    Size = UDim2.new(1, -78, 1, 0),
                     BorderSizePixel = 0
                 })
                 
@@ -4162,8 +4162,8 @@ Library.Watermark = function(Self, Params)
                 Items["Image"] = Library:Create("ImageButton", {
                     Name = "\0",
                     Parent = Self.Items["MainFrame"].Instance,
-                    AnchorPoint = Vector2.new(0.5, 1),
-                    Position = UDim2.new(0, Mascot.Offset.X + Mascot.Size.X / 2, 0, Mascot.Offset.Y),
+                    AnchorPoint = Vector2.new(0, 0),
+                    Position = UDim2.new(0, Mascot.Offset.X, 0, Mascot.Offset.Y),
                     Size = BaseSize,
                     BackgroundTransparency = 1,
                     BorderSizePixel = 0,
@@ -4340,7 +4340,22 @@ Library.Watermark = function(Self, Params)
                 if X ~= nil then Mascot.Offset = Vector2.new(tonumber(X) or Mascot.Offset.X, Mascot.Offset.Y) end
                 if Y ~= nil then Mascot.Offset = Vector2.new(Mascot.Offset.X, tonumber(Y) or Mascot.Offset.Y) end
                 if Z ~= nil then Mascot.ZIndex = tonumber(Z) or Mascot.ZIndex end
-                Items["Image"].Instance.Position = UDim2.new(0, Mascot.Offset.X + Mascot.Size.X / 2, 0, Mascot.Offset.Y)
+
+                local MainFrame = Self.Items["MainFrame"] and Self.Items["MainFrame"].Instance
+                local MaxX = math.huge
+                local MaxY = math.huge
+                if MainFrame then
+                    local FrameSize = MainFrame.AbsoluteSize
+                    MaxX = math.max(0, FrameSize.X - Mascot.Size.X)
+                    MaxY = math.max(0, FrameSize.Y - Mascot.Size.Y)
+                end
+
+                Mascot.Offset = Vector2.new(
+                    math.clamp(Mascot.Offset.X, -Mascot.Size.X, MaxX),
+                    math.clamp(Mascot.Offset.Y, -Mascot.Size.Y, MaxY)
+                )
+
+                Items["Image"].Instance.Position = UDim2.new(0, Mascot.Offset.X, 0, Mascot.Offset.Y)
                 Items["Image"].Instance.ZIndex = Mascot.ZIndex
             end
 
@@ -4393,7 +4408,13 @@ Library.Watermark = function(Self, Params)
                 end)
             end
 
+            -- Keep mascot coordinates valid when the menu is resized.
+            Library:Connect(Self.Items["MainFrame"].Instance:GetPropertyChangedSignal("AbsoluteSize"), function()
+                Mascot:SetPosition(Mascot.Offset.X, Mascot.Offset.Y, Mascot.ZIndex)
+            end)
+
             Self.Mascot = Mascot
+            Mascot:SetPosition(Mascot.Offset.X, Mascot.Offset.Y, Mascot.ZIndex)
             return setmetatable(Mascot, Library)
         end
 
@@ -7418,8 +7439,8 @@ end
                 MascotSection:Slider({
                     Name = "Position X",
                     Flag = "Mascot/PositionX",
-                    Min = -500,
-                    Max = 1000,
+                    Min = -100,
+                    Max = 800,
                     Default = MascotObject and MascotObject.Offset.X or 6,
                     Decimals = 0,
                     Callback = function(Value)
@@ -7430,8 +7451,8 @@ end
                 MascotSection:Slider({
                     Name = "Position Y",
                     Flag = "Mascot/PositionY",
-                    Min = -500,
-                    Max = 500,
+                    Min = -100,
+                    Max = 600,
                     Default = MascotObject and MascotObject.Offset.Y or 12,
                     Decimals = 0,
                     Callback = function(Value)
