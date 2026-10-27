@@ -4029,11 +4029,14 @@ Library.Section = function(Self, Params)
     local Section = {
         Name = Params.Name or Params.name or "Section",
         Side = Params.Side or Params.side or 1,
+        Icon = Params.Icon or Params.icon or "",
 
         Window = Self.Window,
         Page = Self,
         Items = { },
     }
+
+    local HasIcon = Section.Icon ~= ""
 
     local Items = { } do 
         Items["Section"] = Library:Create("Frame", {
@@ -4065,6 +4068,20 @@ Library.Section = function(Self, Params)
             BottomLeftRadius = UDim.new(0, 0)
         })
         
+        if HasIcon then
+            Items["Icon"] = Library:Create("ImageLabel", {
+                Name = "\0",
+                Parent = Items["Top"].Instance,
+                ImageColor3 = Library.Theme["Accent"],
+                AnchorPoint = Vector2.new(0, 0.5),
+                Image = Section.Icon,
+                BackgroundTransparency = 1,
+                Position = UDim2.new(0, 12, 0.5, 0),
+                Size = UDim2.new(0, 18, 0, 18),
+                BorderSizePixel = 0
+            }):AddToTheme({ImageColor3 = 'Accent'})
+        end
+
         Items["Text"] = Library:Create("TextLabel", {
             Name = "\0",
             FontFace = Library.Font,
@@ -4073,7 +4090,7 @@ Library.Section = function(Self, Params)
             TextColor3 = Library.Theme["Text"],
             Text = Section.Name,
             AnchorPoint = Vector2.new(0, 0.5),
-            Position = UDim2.new(0, 12, 0.5, 0),
+            Position = UDim2.new(0, HasIcon and 38 or 12, 0.5, 0),
             BackgroundTransparency = 1,
             TextXAlignment = Enum.TextXAlignment.Left,
             BorderSizePixel = 0,
@@ -6358,7 +6375,7 @@ end
             local ErrorColor = Color3.fromRGB(255, 80, 80)
 
             do -- Profiles
-                local ConfigsSection = SettingsPage:Section({Name = "Profiles", Side = 1})
+                local ConfigsSection = SettingsPage:Section({Name = "Profiles", Icon = "rbxassetid://71354798783833", Side = 1})
 
                 local ConfigsList = ConfigsSection:ListBox({
                     Flag = "Configs",
@@ -6463,7 +6480,7 @@ end
             end
 
             do -- Autoload
-                local AutoloadSection = SettingsPage:Section({Name = "Autoload", Side = 1})
+                local AutoloadSection = SettingsPage:Section({Name = "Autoload", Icon = "rbxassetid://71354798783833", Side = 1})
 
                 AutoloadSection:Button({
                     Name = "Set selected as autoload",
@@ -6493,7 +6510,7 @@ end
             end
 
             do -- Theming
-                local ThemingSection = SettingsPage:Section({Name = "Theming", Side = 2})
+                local ThemingSection = SettingsPage:Section({Name = "Theming", Icon = "rbxassetid://71354798783833", Side = 2})
                 local ThemeReady = false
 
                 ThemingSection:Dropdown({
@@ -6529,7 +6546,7 @@ end
             end
 
             do -- Menu
-                local MenuSection = SettingsPage:Section({Name = "Menu", Side = 2})
+                local MenuSection = SettingsPage:Section({Name = "Menu", Icon = "rbxassetid://71354798783833", Side = 2})
 
                 MenuSection:Label({Name = "Menu Keybind"}):Keybind({
                     Name = "Menu Keybind",
