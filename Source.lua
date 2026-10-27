@@ -1,3 +1,4 @@
+-- DOGY VISUALS UI PATCH v2: Mascot settings + UI click sounds + ESP rotation fix
 --[[
     Made by samet
     Example is at the bottom.
@@ -25,6 +26,7 @@ local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
 local TweenService = game:GetService("TweenService")
 local GuiService = game:GetService("GuiService")
+local SoundService = game:GetService("SoundService")
 local CoreGui = cloneref(game:GetService("CoreGui"))
 
 gethui = gethui or function() return CoreGui end
@@ -34,7 +36,8 @@ local IsMobile = UserInputService.TouchEnabled or false
 local GuiInset = GuiService:GetGuiInset().Y
 local Mouse = cloneref(LocalPlayer:GetMouse())
 
-local Library = { 
+local Library = {
+    BuildVersion = "2026.10.27-mascot-settings-v2", 
     Flags = { },
 
     MenuKeybind = tostring(Enum.KeyCode.X),
@@ -82,6 +85,11 @@ local Library = {
     Theme = nil,
 
     Font = nil,
+
+    UIClickSoundId = "rbxassetid://88442833509532",
+    MascotClickSoundId = "rbxassetid://102774986031312",
+    UIClickSound = nil,
+    MascotClickSound = nil,
 } do 
     Library.__index = Library
 
@@ -470,6 +478,52 @@ local Library = {
         })
     end
 
+    Library.NormalizeSoundId = function(Self, SoundId)
+        if SoundId == nil or SoundId == "" or SoundId == false then
+            return nil
+        end
+
+        local Value = tostring(SoundId)
+        if Value:match("^rbxassetid://") then
+            return Value
+        end
+
+        local Number = Value:match("(%d+)")
+        return Number and ("rbxassetid://" .. Number) or nil
+    end
+
+    Library.SetUIClickSound = function(Self, SoundId)
+        Library.UIClickSoundId = Self:NormalizeSoundId(SoundId)
+        if Library.UIClickSound then
+            Library.UIClickSound.SoundId = Library.UIClickSoundId or ""
+        end
+        return Library.UIClickSoundId
+    end
+
+    Library.SetMascotClickSound = function(Self, SoundId)
+        Library.MascotClickSoundId = Self:NormalizeSoundId(SoundId)
+        if Library.MascotClickSound then
+            Library.MascotClickSound.SoundId = Library.MascotClickSoundId or ""
+        end
+        return Library.MascotClickSoundId
+    end
+
+    Library.PlayUIClickSound = function(Self)
+        local Sound = Library.UIClickSound
+        if not Sound or not Sound.Parent or not Library.UIClickSoundId then return end
+        Sound.SoundId = Library.UIClickSoundId
+        Sound.TimePosition = 0
+        pcall(function() SoundService:PlayLocalSound(Sound) end)
+    end
+
+    Library.PlayMascotClickSound = function(Self)
+        local Sound = Library.MascotClickSound
+        if not Sound or not Sound.Parent or not Library.MascotClickSoundId then return end
+        Sound.SoundId = Library.MascotClickSoundId
+        Sound.TimePosition = 0
+        pcall(function() SoundService:PlayLocalSound(Sound) end)
+    end
+
     Library.Exit = function(Self)
         for _, Connection in Library.Connections do 
             Connection:Disconnect()
@@ -489,6 +543,14 @@ local Library = {
 
         if Self.UnusedHolder then 
             Self.UnusedHolder.Instance:Destroy()
+        end
+
+        if Self.UIClickSound then
+            pcall(function() Self.UIClickSound:Destroy() end)
+        end
+
+        if Self.MascotClickSound then
+            pcall(function() Self.MascotClickSound:Destroy() end)
         end
 
         Library = nil
@@ -1259,6 +1321,62 @@ local Library = {
         ZIndexBehavior = Enum.ZIndexBehavior.Global,
         ResetOnSpawn = false
     })
+
+    Library.UIClickSound = Instance.new("Sound")
+    Library.UIClickSound.Name = "UIClickSound"
+    Library.UIClickSound.SoundId = Library.UIClickSoundId
+    Library.UIClickSound.Volume = 0.65
+    Library.UIClickSound.Parent = SoundService
+
+    Library.MascotClickSound = Instance.new("Sound")
+    Library.MascotClickSound.Name = "MascotClickSound"
+    Library.MascotClickSound.SoundId = Library.MascotClickSoundId
+    Library.MascotClickSound.Volume = 0.8
+    Library.MascotClickSound.Parent = SoundService
+
+    Library:Connect(UserInputService.InputBegan, function(Input)
+        if Input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+
+        local WindowObject = Library.ActiveWindow
+        local MainFrame = WindowObject and WindowObject.Items and WindowObject.Items.MainFrame and WindowObject.Items.MainFrame.Instance
+
+        if not WindowObject or not WindowObject.IsOpen or not MainFrame or not MainFrame.Visible then return end
+
+        local Position = Input.Position
+        local InMainFrame = Position.X >= MainFrame.AbsolutePosition.X
+            and Position.X <= MainFrame.AbsolutePosition.X + MainFrame.AbsoluteSize.X
+            and Position.Y >= MainFrame.AbsolutePosition.Y
+            and Position.Y <= MainFrame.AbsolutePosition.Y + MainFrame.AbsoluteSize.Y
+
+        local InPopup = false
+        local Ok, GuiObjects = pcall(function()
+            return GuiService:GetGuiObjectsAtPosition(Position.X, Position.Y)
+        end)
+
+        if Ok and GuiObjects then
+            for _, GuiObject in GuiObjects do
+                if GuiObject:IsDescendantOf(Library.Holder.Instance) then
+                    InPopup = true
+                    break
+                end
+            end
+        end
+
+        local OnMascot = false
+        if WindowObject and WindowObject.Mascot and WindowObject.Mascot.Items and WindowObject.Mascot.Items.Image then
+            local MascotImage = WindowObject.Mascot.Items.Image.Instance
+            if MascotImage.Visible then
+                OnMascot = Position.X >= MascotImage.AbsolutePosition.X
+                    and Position.X <= MascotImage.AbsolutePosition.X + MascotImage.AbsoluteSize.X
+                    and Position.Y >= MascotImage.AbsolutePosition.Y
+                    and Position.Y <= MascotImage.AbsolutePosition.Y + MascotImage.AbsoluteSize.Y
+            end
+        end
+
+        if (InMainFrame or InPopup) and not OnMascot then
+            Library:PlayUIClickSound()
+        end
+    end)
 
     Library.NotifHolder = Library:Create("ScreenGui", {
         Parent = gethui(),
@@ -3970,6 +4088,7 @@ Library.Watermark = function(Self, Params)
             end)
 
             Window:Center()
+            Library.ActiveWindow = Window
             return setmetatable(Window, Library)
         end
 
@@ -3988,8 +4107,11 @@ Library.Watermark = function(Self, Params)
                 Url = Params.Url or Params.url or "",
                 Size = Params.Size or Params.size or Vector2.new(120, 120),
                 Offset = Params.Offset or Params.offset or Vector2.new(6, 12),
+                ZIndex = Params.ZIndex or Params.zindex or 3,
                 PressScale = Params.PressScale or Params.pressscale or Vector2.new(1.05, 0.88),
                 Callback = Params.Callback or Params.callback or function() end,
+                Mascots = Params.Mascots or Params.mascots or { },
+                CurrentMascot = Params.DefaultMascot or Params.defaultMascot or Params.Mascot or Params.mascot,
 
                 Window = Self,
                 Visible = Params.Visible ~= false,
@@ -4019,7 +4141,7 @@ Library.Watermark = function(Self, Params)
                     Image = "",
                     ImageTransparency = 1,
                     Visible = false,
-                    ZIndex = 3
+                    ZIndex = Mascot.ZIndex
                 })
 
                 Items["Scale"] = Library:Create("UIScale", {
@@ -4103,6 +4225,7 @@ Library.Watermark = function(Self, Params)
             Items["Image"]:Connect("MouseButton1Up", Release)
             Items["Image"]:Connect("MouseLeave", Release)
             Items["Image"]:Connect("MouseButton1Click", function()
+                Library:PlayMascotClickSound()
                 Library:SafeCall(Mascot.Callback)
             end)
 
@@ -4119,8 +4242,8 @@ Library.Watermark = function(Self, Params)
                 end)
             end
 
-            local function LoadImage()
-                local Url = tostring(Mascot.Url)
+            local function LoadImage(TargetUrl)
+                local Url = tostring(TargetUrl or Mascot.Url)
 
                 if Url == "" then
                     return nil
@@ -4211,8 +4334,63 @@ Library.Watermark = function(Self, Params)
                 return Asset
             end
 
+            function Mascot:SetPosition(X, Y, Z)
+                if X ~= nil then Mascot.Offset = Vector2.new(tonumber(X) or Mascot.Offset.X, Mascot.Offset.Y) end
+                if Y ~= nil then Mascot.Offset = Vector2.new(Mascot.Offset.X, tonumber(Y) or Mascot.Offset.Y) end
+                if Z ~= nil then Mascot.ZIndex = tonumber(Z) or Mascot.ZIndex end
+
+                Items["Image"].Instance.Position = UDim2.new(0, Mascot.Offset.X + Mascot.Size.X / 2, 0, Mascot.Offset.Y)
+                Items["Image"].Instance.ZIndex = Mascot.ZIndex
+            end
+
+            function Mascot:SetSize(Value)
+                local Number = math.max(1, tonumber(Value) or Mascot.Size.X)
+                Mascot.Size = Vector2.new(Number, Number)
+                BaseSize = UDim2.new(0, Number, 0, Number)
+                PressedSize = UDim2.new(0, Number * Mascot.PressScale.X, 0, Number * Mascot.PressScale.Y)
+                Items["Image"].Instance.Size = BaseSize
+                Mascot:SetPosition(Mascot.Offset.X, Mascot.Offset.Y, Mascot.ZIndex)
+            end
+
+            function Mascot:SetClickSound(SoundId)
+                return Library:SetMascotClickSound(SoundId)
+            end
+
+            function Mascot:SetUrl(Url)
+                Mascot.Url = tostring(Url or "")
+                Mascot.Loaded = false
+                Items["Image"].Instance.Visible = false
+                Items["Image"].Instance.ImageTransparency = 1
+
+                task.spawn(function()
+                    local Asset = LoadImage(Mascot.Url)
+                    if not Library or not Asset or not Items["Image"].Instance.Parent then return end
+                    Items["Image"].Instance.Image = Asset
+                    Mascot.Loaded = true
+                    if Mascot.Visible then Show() end
+                end)
+            end
+
+            function Mascot:SetMascot(Name)
+                local Data = Mascot.Mascots and Mascot.Mascots[Name]
+                if type(Data) ~= "table" then return false end
+
+                Mascot.CurrentMascot = Name
+                if Data.Size then Mascot:SetSize(Data.Size) end
+                if Data.Offset then Mascot:SetPosition(Data.Offset.X, Data.Offset.Y, Data.ZIndex or Mascot.ZIndex) end
+                if Data.ZIndex then Mascot:SetPosition(nil, nil, Data.ZIndex) end
+                if Data.ClickSound then Mascot:SetClickSound(Data.ClickSound) end
+                if Data.Url then Mascot:SetUrl(Data.Url) end
+                return true
+            end
+
             task.spawn(function()
-                local Asset = LoadImage()
+                if Mascot.CurrentMascot and Mascot.Mascots[Mascot.CurrentMascot] then
+                    Mascot:SetMascot(Mascot.CurrentMascot)
+                    return
+                end
+
+                local Asset = LoadImage(Mascot.Url)
 
                 if not Library or not Asset or not Items["Image"].Instance.Parent then
                     return
