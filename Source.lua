@@ -39,7 +39,7 @@ local Library = {
 
     MenuKeybind = tostring(Enum.KeyCode.X),
 
-    Directory = "vaping it",
+    Directory = "dogy visuals",
 
     -- Ссылка на твой Icons.lua (raw) в репозитории
     IconsUrl = "https://raw.githubusercontent.com/xolylol/dogy-visuals-ui/refs/heads/main/Icons.lua",
@@ -187,6 +187,35 @@ local Library = {
 
     if not isfile(Library.Directory .. "/autoload.json") then
         SafeLibraryWriteFile(Library.Directory .. "/autoload.json", "")
+    end
+
+    -- Меняет папку скрипта (конфиги, автозагрузка). Можно вложенную: "my script/main"
+    -- Вызывать в самом начале скрипта, до Library:Window и до работы с конфигами.
+    -- Свои подпапки: Library.Folders.Themes = "/Themes" (перед вызовом SetDirectory)
+    Library.SetDirectory = function(Self, Name)
+        Name = tostring(Name or ""):gsub("\\", "/"):gsub("^/+", ""):gsub("/+$", "")
+
+        if Name == "" then
+            return false
+        end
+
+        Library.Directory = Name
+
+        local Path = ""
+        for Segment in Name:gmatch("[^/]+") do
+            Path = Path == "" and Segment or (Path .. "/" .. Segment)
+            SafeLibraryMakeFolder(Path)
+        end
+
+        for _, Folder in Library.Folders do
+            SafeLibraryMakeFolder(Library.Directory .. Folder)
+        end
+
+        if not isfile(Library.Directory .. "/autoload.json") then
+            SafeLibraryWriteFile(Library.Directory .. "/autoload.json", "")
+        end
+
+        return true
     end
 
     local Themes = {
@@ -2514,9 +2543,11 @@ end
     
             function Keybind:Set(Key)
                 if string.find(tostring(Key), "Enum") then 
-                    Keybind.Key = tostring(Key)
+                    local IsBackspace = Key.Name == "Backspace"
+
+                    Keybind.Key = IsBackspace and "None" or tostring(Key)
     
-                    Key = Key.Name == "Backspace" and "None" or Key.Name
+                    Key = IsBackspace and "None" or Key.Name
     
                     local KeyString = Keys[Keybind.Key] or string.gsub(Key, "Enum.", "") or "None"
                     local TextToDisplay = string.gsub(string.gsub(KeyString, "KeyCode.", ""), "UserInputType.", "") or "None"
@@ -4493,6 +4524,7 @@ end
             local Button = {
                 Name = Params.Name or Params.name or "Button",
                 Callback = Params.Callback or Params.callback or function() end,
+                Flash = Params.Flash ~= false,
 
                 Window = Self.Window,
                 Page = Self.Page,
@@ -4598,9 +4630,11 @@ end
             end)
 
             function Button:Press()
-                Items["Accent"]:Tween({Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 0})
-                task.wait(0.18)
-                Items["Accent"]:Tween({Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1})
+                if Button.Flash then
+                    Items["Accent"]:Tween({Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 0})
+                    task.wait(0.18)
+                    Items["Accent"]:Tween({Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1})
+                end
 
                 Library:SafeCall(Button.Callback)
             end
@@ -4618,6 +4652,86 @@ end
             end)
 
             return setmetatable(Button, Library)
+        end
+
+        -- SubButton: кнопка с подтверждением.
+        -- 1-й клик: на самой кнопке появляется ConfirmText цветом акцента (по умолчанию "are you sure?").
+        -- 2-й клик (пока надпись стоит): вызывается Callback.
+        -- Если не нажать за ConfirmTime секунд (по умолчанию 1.5) - надпись возвращается обратно.
+        -- ConfirmText и ConfirmTime задаются в скрипте, можно менять и потом: SubButton.ConfirmTime = 3
+        Library.SubButton = function(Self, Params)
+            Params = Params or { }
+
+            local Options = { }
+            for Index, Value in Params do
+                Options[Index] = Value
+            end
+
+            local RealCallback = Params.Callback or Params.callback or function() end
+
+            local State = {
+                Armed = false,
+                Token = 0,
+                OriginalText = ""
+            }
+
+            local SubButton
+
+            local function Disarm()
+                if not State.Armed then
+                    return
+                end
+
+                State.Armed = false
+                State.Token += 1
+
+                local Text = SubButton.Items["Text"]
+                Text.Instance.Text = State.OriginalText
+                Text:ChangeItemTheme({TextColor3 = "Text"})
+                Text:Tween({TextColor3 = Library.Theme["Text"]})
+            end
+
+            local function Arm()
+                State.Armed = true
+                State.Token += 1
+
+                local Token = State.Token
+                local Text = SubButton.Items["Text"]
+
+                State.OriginalText = Text.Instance.Text
+                Text.Instance.Text = tostring(SubButton.ConfirmText)
+                Text:ChangeItemTheme({TextColor3 = "Accent"})
+                Text:Tween({TextColor3 = Library.Theme["Accent"]})
+
+                task.delay(tonumber(SubButton.ConfirmTime) or 1.5, function()
+                    if not Library or State.Token ~= Token or not State.Armed then
+                        return
+                    end
+
+                    Disarm()
+                end)
+            end
+
+            Options.Flash = false
+            Options.Callback = function()
+                if not State.Armed then
+                    Arm()
+                    return
+                end
+
+                Disarm()
+                Library:SafeCall(RealCallback)
+            end
+
+            SubButton = Library.Button(Self, Options)
+            SubButton.ConfirmText = Params.ConfirmText or "are you sure?"
+            SubButton.ConfirmTime = Params.ConfirmTime or 1.5
+
+            function SubButton:Disarm()
+                Disarm()
+            end
+
+            return SubButton
         end
 
         Library.Slider = function(Self, Params)
@@ -6649,8 +6763,11 @@ end
                     Default = Enum.KeyCode.X,
                     Mode = "Toggle",
                     Callback = function()
-                        if Library.Flags["MenuKeybind"] and Library.Flags["MenuKeybind"].Key then
-                            Library.MenuKeybind = Library.Flags["MenuKeybind"].Key
+                        local Key = Library.Flags["MenuKeybind"] and Library.Flags["MenuKeybind"].Key
+
+                        -- "None" (Backspace) игнорируем, чтобы нельзя было остаться без кнопки меню
+                        if Key and Key ~= "None" then
+                            Library.MenuKeybind = Key
                         end
                     end
                 })
@@ -6690,20 +6807,21 @@ end
 
                 MenuSection:Divider()
 
-                MenuSection:Button({
+                MenuSection:SubButton({
                     Name = "Unload",
+                    ConfirmText = "are you sure?",
+                    ConfirmTime = 1.5,
                     Callback = function()
-                        Notify("Unloading", "Library is being unloaded.", Library.Theme.Accent)
-                        task.delay(0.35, function()
+                        task.defer(function()
                             Library:Exit()
                         end)
                     end
                 })
             end
 
-            local AutoloadContent = readfile(Library.Directory .. "/autoload.json")
+            local AutoloadOk, AutoloadContent = pcall(readfile, Library.Directory .. "/autoload.json")
 
-            if AutoloadContent ~= "" then
+            if AutoloadOk and AutoloadContent ~= "" then
                 local Success, Error = Library:LoadConfig(AutoloadContent)
 
                 if Success then
