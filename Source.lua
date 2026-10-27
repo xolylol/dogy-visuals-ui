@@ -4263,7 +4263,8 @@ Library.Watermark = function(Self, Params)
             local Mascot = {
                 Url = "",
                 Size = Params.Size or Params.size or Vector2.new(120, 120),
-                Offset = Params.Offset or Params.offset or Vector2.new(6, 12),
+		Rotation = Params.Rotation or Params.rotation or 0,
+                Offset = Params.Offset or Params.offset or Vector2.new(-222, -333),
                 ZIndex = Params.ZIndex or Params.zindex or 3,
                 PressScale = Params.PressScale or Params.pressscale or Vector2.new(1.05, 0.88),
                 Callback = Params.Callback or Params.callback or function() end,
@@ -4766,6 +4767,14 @@ Library.Watermark = function(Self, Params)
 
             local Size = GetSize()
             local X = Size.X
+
+
+	function Mascot:SetClickSoundVolume(Value)
+		self.ClickSoundVolume = math.clamp(tonumber(Value) or 0.8, 0, 1)
+		if self.ClickSoundInstance then
+			self.ClickSoundInstance.Volume = self.ClickSoundVolume
+		end
+	end
 
 function Page:Turn()
     local Old = Page.Window.Current 
