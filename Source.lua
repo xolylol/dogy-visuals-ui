@@ -3261,7 +3261,7 @@ Library.Watermark = function(Self, Params)
             
             local KeybindList = {
                 Name = Params.Name or Params.name or "Keybind List",
-                Icon = Params.Icon or Params.icon or "zap",
+                Icon = Params.Icon or Params.icon or "keyboard",
                 Keys = { },
                 Window = Self,
                 Items = { }
@@ -3707,7 +3707,7 @@ Library.Watermark = function(Self, Params)
 
             local ESPPreview = {
                 Name = Params.Name or Params.name or "ESP Preview",
-                Icon = Params.Icon or Params.icon or "smile",
+                Icon = Params.Icon or Params.icon or "eye",
 
                 Window = Self,
                 Player = nil,
@@ -4294,8 +4294,8 @@ Library.Watermark = function(Self, Params)
                 Items["Image"] = Library:Create("ImageButton", {
                     Name = "\0",
                     Parent = Self.Items["MainFrame"].Instance,
-                    AnchorPoint = Vector2.new(0.5, 1),
-                    Position = UDim2.new(0, Mascot.Offset.X + Mascot.Size.X / 2, 0, Mascot.Offset.Y),
+                    AnchorPoint = Vector2.new(0.5, 0.5),
+                    Position = UDim2.new(0.5, Mascot.Offset.X, 0.5, Mascot.Offset.Y),
                     Size = BaseSize,
                     Rotation = Mascot.Rotation,
                     BackgroundTransparency = 1,
@@ -4470,32 +4470,16 @@ Library.Watermark = function(Self, Params)
             end
 
             function Mascot:GetCenteredPosition()
-                local Parent = Items["Image"].Instance.Parent
-                if not Parent then
-                    return Mascot.Offset.X, Mascot.Offset.Y
-                end
-
-                local ParentSize = Parent.AbsoluteSize
-                return Mascot.Offset.X + Mascot.Size.X / 2 - ParentSize.X / 2,
-                    Mascot.Offset.Y - Mascot.Size.Y / 2 - ParentSize.Y / 2
+                return Mascot.Offset.X, Mascot.Offset.Y
             end
 
             function Mascot:SetCenteredPosition(X, Y)
                 X = tonumber(X) or 0
                 Y = tonumber(Y) or 0
 
-                local Parent = Items["Image"].Instance.Parent
-                if not Parent then
-                    Mascot:SetPosition(X, Y, Mascot.ZIndex)
-                    return
-                end
-
-                local ParentSize = Parent.AbsoluteSize
-                Mascot:SetPosition(
-                    ParentSize.X / 2 + X - Mascot.Size.X / 2,
-                    ParentSize.Y / 2 + Y + Mascot.Size.Y / 2,
-                    Mascot.ZIndex
-                )
+                Mascot.Offset = Vector2.new(X, Y)
+                Items["Image"].Instance.Position = UDim2.new(0.5, X, 0.5, Y)
+                Items["Image"].Instance.ZIndex = Mascot.ZIndex
             end
 
             function Mascot:SetPosition(X, Y, Z)
@@ -4513,8 +4497,10 @@ Library.Watermark = function(Self, Params)
                     Mascot.ZIndex = math.clamp(NewZ, 1, 100)
                 end
 
-                -- Reference layout: mascot is bottom-anchored at the upper-left corner of the window.
-                Items["Image"].Instance.Position = UDim2.new(0, Mascot.Offset.X + Mascot.Size.X / 2, 0, Mascot.Offset.Y)
+                -- Mascot coordinates are relative to the center of the GUI:
+                -- 0,0 = center, negative X = left, positive X = right,
+                -- negative Y = up, positive Y = down.
+                Items["Image"].Instance.Position = UDim2.new(0.5, Mascot.Offset.X, 0.5, Mascot.Offset.Y)
                 Items["Image"].Instance.ZIndex = Mascot.ZIndex
 
                 if Mascot.Visible and Mascot.Loaded then
@@ -7473,7 +7459,7 @@ end
         end
 
         Library.Init = function(Self)
-            local SettingsPage = Self:Page({Name = "UI Settings", Icon = "rbxassetid://71354798783833"})
+            local SettingsPage = Self:Page({Name = "UI Settings", Icon = "settings"})
 
             local ConfigName
             local ConfigSelected
@@ -7597,7 +7583,7 @@ end
             end
 
             do -- Autoload
-                local AutoloadSection = SettingsPage:Section({Name = "Autoload", Icon = "zap", Side = 1})
+                local AutoloadSection = SettingsPage:Section({Name = "Autoload", Icon = "play-circle", Side = 1})
 
                 AutoloadSection:Button({
                     Name = "Set selected as autoload",
@@ -7798,7 +7784,7 @@ end
             end
 
             do -- Menu
-                local MenuSection = SettingsPage:Section({Name = "Menu", Icon = "menu", Side = 2})
+                local MenuSection = SettingsPage:Section({Name = "Menu", Icon = "settings", Side = 2})
 
                 MenuSection:Label({Name = "Menu Keybind"}):Keybind({
                     Name = "Menu Keybind",
