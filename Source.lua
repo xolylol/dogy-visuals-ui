@@ -4100,18 +4100,49 @@ Library.Watermark = function(Self, Params)
         --   PressScale - во сколько раз меняется ширина/высота при нажатии (по умолчанию 1.05 / 0.88)
         --   Callback   - функция при клике
         -- PNG и JPG поддерживаются; JPG просто не имеет прозрачности.
+        -- Mascot registry.
+        -- Add mascots with:
+        -- Mascots = {
+        --     mimi = "https://.../mimi.png",
+        --     kitty = { Url = "https://.../kitty.jpg", Size = 140, Offset = Vector2.new(10, 20), ZIndex = 3, ClickSound = "123" },
+        -- }
+        -- A mascot does NOT need to be hard-coded into the library. Example/config only provides the registry.
         Library.Mascot = function(Self, Params)
             Params = Params or { }
 
+            local Mascots = Params.Mascots or Params.mascots or { }
+            local DefaultMascot = Params.DefaultMascot or Params.defaultMascot or Params.Mascot or Params.mascot
+
+            -- If only Url was supplied, turn it into a one-entry registry for backwards compatibility.
+            if next(Mascots) == nil and (Params.Url or Params.url) then
+                Mascots = {
+                    mascot = {
+                        Url = Params.Url or Params.url,
+                        Size = Params.Size or Params.size,
+                        Offset = Params.Offset or Params.offset,
+                        ZIndex = Params.ZIndex or Params.zindex,
+                        ClickSound = Params.ClickSound or Params.clickSound
+                    }
+                }
+                DefaultMascot = DefaultMascot or "mascot"
+            end
+
+            if not DefaultMascot then
+                for Name in Mascots do
+                    DefaultMascot = Name
+                    break
+                end
+            end
+
             local Mascot = {
-                Url = Params.Url or Params.url or "",
+                Url = "",
                 Size = Params.Size or Params.size or Vector2.new(120, 120),
                 Offset = Params.Offset or Params.offset or Vector2.new(6, 12),
                 ZIndex = Params.ZIndex or Params.zindex or 3,
                 PressScale = Params.PressScale or Params.pressscale or Vector2.new(1.05, 0.88),
                 Callback = Params.Callback or Params.callback or function() end,
-                Mascots = Params.Mascots or Params.mascots or { },
-                CurrentMascot = Params.DefaultMascot or Params.defaultMascot or Params.Mascot or Params.mascot,
+                Mascots = Mascots,
+                CurrentMascot = DefaultMascot,
 
                 Window = Self,
                 Visible = Params.Visible ~= false,
@@ -4157,7 +4188,6 @@ Library.Watermark = function(Self, Params)
 
             local function Show()
                 Token += 1
-
                 Items["Image"].Instance.Visible = true
                 Items["Image"].Instance.Active = true
                 Items["Scale"]:Tween({Scale = 1}, ShowInfo)
@@ -4166,13 +4196,10 @@ Library.Watermark = function(Self, Params)
 
             local function Hide()
                 Token += 1
-
                 local Mine = Token
-
                 Items["Image"].Instance.Active = false
                 Items["Scale"]:Tween({Scale = 0.85}, HideInfo)
                 Items["Image"]:Tween({ImageTransparency = 1}, HideInfo)
-
                 task.delay(HideInfo.Time + 0.05, function()
                     if Library and Token == Mine then
                         Items["Image"].Instance.Visible = false
@@ -4182,41 +4209,21 @@ Library.Watermark = function(Self, Params)
 
             function Mascot:SetVisibility(Bool)
                 Bool = Bool and true or false
-
-                if Mascot.Visible == Bool then
-                    return
-                end
-
                 Mascot.Visible = Bool
-
                 if not Mascot.Loaded then
                     return
                 end
-
-                if Bool then
-                    Show()
-                else
-                    Hide()
-                end
+                if Bool then Show() else Hide() end
             end
 
-            -- Сжатие при нажатии
             local Pressed = false
-
             local function Squish()
-                if Pressed then
-                    return
-                end
-
+                if Pressed then return end
                 Pressed = true
                 Items["Image"]:Tween({Size = PressedSize}, PressInfo)
             end
-
             local function Release()
-                if not Pressed then
-                    return
-                end
-
+                if not Pressed then return end
                 Pressed = false
                 Items["Image"]:Tween({Size = BaseSize}, ReleaseInfo)
             end
@@ -4229,25 +4236,13 @@ Library.Watermark = function(Self, Params)
                 Library:SafeCall(Mascot.Callback)
             end)
 
-            -- Загрузка картинки (в фоне, чтобы не тормозить создание окна)
             local function Fail(Text)
                 warn("[Library] Mascot: " .. Text)
-                pcall(function()
-                    Library:Notification({
-                        Name = "Mascot",
-                        Description = Text,
-                        Duration = 8,
-                        Color = Color3.fromRGB(255, 80, 80)
-                    })
-                end)
             end
 
             local function LoadImage(TargetUrl)
-                local Url = tostring(TargetUrl or Mascot.Url)
-
-                if Url == "" then
-                    return nil
-                end
+                local Url = tostring(TargetUrl or "")
+                if Url == "" then return nil end
 
                 if Url:match("^rbxasset") or Url:match("^rbxthumb") then
                     return Url
@@ -4259,12 +4254,9 @@ Library.Watermark = function(Self, Params)
                     return nil
                 end
 
-                -- Allow an already-downloaded local asset as Url/path too.
                 if isfile(Url) then
                     local AssetOk, Asset = pcall(GetAsset, Url)
-                    if AssetOk and Asset then
-                        return Asset
-                    end
+                    if AssetOk and Asset then return Asset end
                 end
 
                 local function Download(TargetUrl)
@@ -4274,71 +4266,80 @@ Library.Watermark = function(Self, Params)
                         return Data
                     end
 
-                    -- Some executors expose a request() API even when game:HttpGet is restricted.
                     if request then
-                        local Ok, Response = pcall(request, {
-                            Url = TargetUrl,
-                            Method = "GET"
-                        })
+                        local Ok, Response = pcall(request, {Url = TargetUrl, Method = "GET"})
                         if Ok and Response and tonumber(Response.StatusCode or 0) >= 200 and tonumber(Response.StatusCode or 0) < 300 and type(Response.Body) == "string" then
                             return Response.Body
                         end
                     end
-
                     return nil
                 end
 
                 local Data = Download(Url)
-
-                -- The example used mimi.jpg while the repository actually ships mimi.png.
-                -- If a JPG URL is a missing file, transparently try the PNG sibling.
                 if not Data and Url:lower():match("%.jpe?g$") then
                     local PngUrl = Url:gsub("%.[jJ][pP][eE][gG]$", ".png"):gsub("%.[jJ][pP][gG]$", ".png")
                     Data = Download(PngUrl)
                 end
 
                 if not Data then
-                    Fail("failed to download image (URL returned no usable data)")
+                    Fail("failed to download image: " .. Url)
                     return nil
                 end
 
-                local IsPng = Data:sub(1, 8) == "\137PNG\r\n\26\n" or Data:sub(2, 4) == "PNG"
+                local IsPng = Data:sub(1, 8) == "\137PNG\r\n\26\n"
                 local IsJpg = Data:byte(1) == 255 and Data:byte(2) == 216
-
                 if not IsPng and not IsJpg then
-                    Fail("file at Url is not a PNG/JPG (check the link)")
+                    Fail("file is not a PNG/JPG: " .. Url)
                     return nil
                 end
 
                 local Folder = Library.Directory .. Library.Folders.Assets
                 pcall(function()
-                    if isfolder and not isfolder(Folder) then
-                        makefolder(Folder)
-                    end
+                    if isfolder and not isfolder(Folder) then makefolder(Folder) end
                 end)
 
-                local Path = Folder .. "/mascot." .. (IsPng and "png" or "jpg")
+                local SafeName = Url:match("([^/?#]+)%.[^/?#]+$") or (Mascot.CurrentMascot or "mascot")
+                SafeName = SafeName:gsub("[^%w_%-]", "_")
+                local Path = Folder .. "/mascot_" .. SafeName .. (IsPng and ".png" or ".jpg")
                 pcall(writefile, Path, Data)
 
                 if not isfile(Path) then
-                    Fail("failed to save image")
+                    Fail("failed to save image: " .. Path)
                     return nil
                 end
 
                 local AssetOk, Asset = pcall(GetAsset, Path)
                 if not AssetOk or not Asset then
-                    Fail("failed to create custom asset from image")
+                    Fail("failed to create custom asset: " .. Path)
                     return nil
                 end
-
                 return Asset
+            end
+
+            function Mascot:GetNames()
+                local Names = { }
+                for Name in Mascot.Mascots do
+                    table.insert(Names, tostring(Name))
+                end
+                table.sort(Names)
+                return Names
+            end
+
+            function Mascot:Add(Name, Data)
+                if not Name or Name == "" then return false end
+                if type(Data) == "string" then
+                    Data = {Url = Data}
+                elseif type(Data) ~= "table" then
+                    return false
+                end
+                Mascot.Mascots[tostring(Name)] = Data
+                return true
             end
 
             function Mascot:SetPosition(X, Y, Z)
                 if X ~= nil then Mascot.Offset = Vector2.new(tonumber(X) or Mascot.Offset.X, Mascot.Offset.Y) end
                 if Y ~= nil then Mascot.Offset = Vector2.new(Mascot.Offset.X, tonumber(Y) or Mascot.Offset.Y) end
                 if Z ~= nil then Mascot.ZIndex = tonumber(Z) or Mascot.ZIndex end
-
                 Items["Image"].Instance.Position = UDim2.new(0, Mascot.Offset.X + Mascot.Size.X / 2, 0, Mascot.Offset.Y)
                 Items["Image"].Instance.ZIndex = Mascot.ZIndex
             end
@@ -4353,6 +4354,7 @@ Library.Watermark = function(Self, Params)
             end
 
             function Mascot:SetClickSound(SoundId)
+                Mascot.ClickSound = SoundId
                 return Library:SetMascotClickSound(SoundId)
             end
 
@@ -4373,36 +4375,23 @@ Library.Watermark = function(Self, Params)
 
             function Mascot:SetMascot(Name)
                 local Data = Mascot.Mascots and Mascot.Mascots[Name]
-                if type(Data) ~= "table" then return false end
+                if type(Data) == "string" then Data = {Url = Data} end
+                if type(Data) ~= "table" or not Data.Url then return false end
 
                 Mascot.CurrentMascot = Name
-                if Data.Size then Mascot:SetSize(Data.Size) end
-                if Data.Offset then Mascot:SetPosition(Data.Offset.X, Data.Offset.Y, Data.ZIndex or Mascot.ZIndex) end
-                if Data.ZIndex then Mascot:SetPosition(nil, nil, Data.ZIndex) end
-                if Data.ClickSound then Mascot:SetClickSound(Data.ClickSound) end
-                if Data.Url then Mascot:SetUrl(Data.Url) end
+                Mascot:SetSize(Data.Size or Mascot.Size.X)
+                local Offset = Data.Offset or Mascot.Offset
+                Mascot:SetPosition(Offset.X, Offset.Y, Data.ZIndex or Mascot.ZIndex)
+                Mascot:SetClickSound(Data.ClickSound or Params.ClickSound or "102774986031312")
+                Mascot:SetUrl(Data.Url)
                 return true
             end
 
-            task.spawn(function()
-                if Mascot.CurrentMascot and Mascot.Mascots[Mascot.CurrentMascot] then
+            if Mascot.CurrentMascot and Mascot.Mascots[Mascot.CurrentMascot] then
+                task.spawn(function()
                     Mascot:SetMascot(Mascot.CurrentMascot)
-                    return
-                end
-
-                local Asset = LoadImage(Mascot.Url)
-
-                if not Library or not Asset or not Items["Image"].Instance.Parent then
-                    return
-                end
-
-                Items["Image"].Instance.Image = Asset
-                Mascot.Loaded = true
-
-                if Mascot.Visible then
-                    Show()
-                end
-            end)
+                end)
+            end
 
             Self.Mascot = Mascot
             return setmetatable(Mascot, Library)
@@ -7215,7 +7204,7 @@ end
         end
 
         Library.Init = function(Self)
-            local SettingsPage = Self:Page({Name = "Settings", Icon = "rbxassetid://71354798783833"})
+            local SettingsPage = Self:Page({Name = "UI Settings", Icon = "rbxassetid://71354798783833"})
 
             local ConfigName
             local ConfigSelected
@@ -7404,6 +7393,89 @@ end
                 end
             end
 
+            do -- Mascot
+                local MascotSection = SettingsPage:Section({Name = "Mascot", Icon = "smile", Side = 2})
+                local MascotObject = Self.Mascot
+                local MascotNames = MascotObject and MascotObject:GetNames() or { }
+                local MascotDefault = MascotObject and MascotObject.CurrentMascot
+
+                if #MascotNames == 0 then
+                    MascotNames = { "None" }
+                end
+
+                MascotSection:Dropdown({
+                    Name = "Mascot",
+                    Flag = "Mascot/Selected",
+                    Items = MascotNames,
+                    Default = MascotDefault or MascotNames[1],
+                    Callback = function(Value)
+                        if MascotObject and Value ~= "None" then
+                            MascotObject:SetMascot(Value)
+                        end
+                    end
+                })
+
+                MascotSection:Slider({
+                    Name = "Position X",
+                    Flag = "Mascot/PositionX",
+                    Min = -500,
+                    Max = 1000,
+                    Default = MascotObject and MascotObject.Offset.X or 6,
+                    Decimals = 0,
+                    Callback = function(Value)
+                        if MascotObject then MascotObject:SetPosition(Value, nil, nil) end
+                    end
+                })
+
+                MascotSection:Slider({
+                    Name = "Position Y",
+                    Flag = "Mascot/PositionY",
+                    Min = -500,
+                    Max = 500,
+                    Default = MascotObject and MascotObject.Offset.Y or 12,
+                    Decimals = 0,
+                    Callback = function(Value)
+                        if MascotObject then MascotObject:SetPosition(nil, Value, nil) end
+                    end
+                })
+
+                MascotSection:Slider({
+                    Name = "Position Z",
+                    Flag = "Mascot/PositionZ",
+                    Min = 1,
+                    Max = 20,
+                    Default = MascotObject and MascotObject.ZIndex or 3,
+                    Decimals = 0,
+                    Callback = function(Value)
+                        if MascotObject then MascotObject:SetPosition(nil, nil, Value) end
+                    end
+                })
+
+                MascotSection:Slider({
+                    Name = "Size",
+                    Flag = "Mascot/Size",
+                    Min = 20,
+                    Max = 400,
+                    Default = MascotObject and MascotObject.Size.X or 120,
+                    Decimals = 0,
+                    Callback = function(Value)
+                        if MascotObject then MascotObject:SetSize(Value) end
+                    end
+                })
+
+                MascotSection:Dropdown({
+                    Name = "Click Sound",
+                    Flag = "Mascot/ClickSound",
+                    Items = {"nyaa", "None"},
+                    Default = "nyaa",
+                    Callback = function(Value)
+                        if MascotObject then
+                            MascotObject:SetClickSound(Value == "None" and nil or "102774986031312")
+                        end
+                    end
+                })
+            end
+
             do -- Menu
                 local MenuSection = SettingsPage:Section({Name = "Menu", Icon = "menu", Side = 2})
 
@@ -7465,6 +7537,16 @@ end
                         end
                     })
                 end
+
+                MenuSection:Dropdown({
+                    Name = "UI Click Sound",
+                    Flag = "UIClickSound",
+                    Items = {"Simple click", "None"},
+                    Default = "Simple click",
+                    Callback = function(Value)
+                        Library:SetUIClickSound(Value == "None" and nil or "88442833509532")
+                    end
+                })
 
                 MenuSection:Divider()
 
