@@ -1311,6 +1311,7 @@ local Library = {
                 Flag = Data.Flag,
                 IsOpen = false,
                 Mini = Data.Mini == true,
+                ClipboardEnabled = Data.Clipboard ~= false and Data.clipboard ~= false,
 
                 AnimationEnabled = false,
                 AnimationMode = "Linear",
@@ -1430,6 +1431,73 @@ local Library = {
                     BorderSizePixel = 0
                 })
 
+                if Colorpicker.ClipboardEnabled then
+                    Items["Clipboard"] = Library:Create("Frame", {
+                        Name = "\0",
+                        Parent = Items["Top"].Instance,
+                        AnchorPoint = Vector2.new(0, 0.5),
+                        Position = UDim2.new(0, 8, 0.5, 0),
+                        Size = UDim2.new(0, 58, 0, 30),
+                        BackgroundTransparency = 1,
+                        BorderSizePixel = 0
+                    })
+
+                    Library:Create("UIListLayout", {
+                        Name = "\0",
+                        Parent = Items["Clipboard"].Instance,
+                        FillDirection = Enum.FillDirection.Horizontal,
+                        VerticalAlignment = Enum.VerticalAlignment.Center,
+                        HorizontalAlignment = Enum.HorizontalAlignment.Left,
+                        Padding = UDim.new(0, 4),
+                        SortOrder = Enum.SortOrder.LayoutOrder
+                    })
+
+                    for _, ButtonData in ipairs({
+                        {Name = "Copy", Icon = "copy"},
+                        {Name = "Paste", Icon = "clipboard"},
+                    }) do
+                        local Button = Library:Create("ImageButton", {
+                            Name = "\0",
+                            Parent = Items["Clipboard"].Instance,
+                            Size = UDim2.new(0, 27, 0, 27),
+                            BackgroundColor3 = Library.Theme["Tab"],
+                            BackgroundTransparency = 0,
+                            BorderSizePixel = 0,
+                            AutoButtonColor = false,
+                            ImageColor3 = Library.Theme["Inactive Text"],
+                            Image = "",
+                            LayoutOrder = ButtonData.Name == "Copy" and 1 or 2
+                        }):AddToTheme({BackgroundColor3 = "Tab", ImageColor3 = "Inactive Text"})
+
+                        Library:Create("UICorner", {
+                            Name = "\0",
+                            Parent = Button.Instance,
+                            CornerRadius = UDim.new(0, 5)
+                        })
+
+                        Library:Create("UIStroke", {
+                            Name = "\0",
+                            Parent = Button.Instance,
+                            Color = Library.Theme["Outline"],
+                            ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                        }):AddToTheme({Color = "Outline"})
+
+                        local Icon = Library:Create("ImageLabel", {
+                            Name = "\0",
+                            Parent = Button.Instance,
+                            AnchorPoint = Vector2.new(0.5, 0.5),
+                            Position = UDim2.new(0.5, 0, 0.5, 0),
+                            Size = UDim2.new(0, 15, 0, 15),
+                            BackgroundTransparency = 1,
+                            BorderSizePixel = 0,
+                            ImageColor3 = Library.Theme["Inactive Text"]
+                        }):AddToTheme({ImageColor3 = "Inactive Text"})
+
+                        Library:ApplyIcon(Icon.Instance, ButtonData.Icon)
+                        Items[ButtonData.Name] = Button
+                    end
+                end
+
                 Library:Create("UICorner", {
                     Name = "\0",
                     Parent = Items["ColorpickerWindow"].Instance
@@ -1481,6 +1549,88 @@ local Library = {
             local ColorpickerButton = Items["ColorpickerButton"].Instance
 
             local IsSettings = Data.IsSettings or Data.Mini or (Data.Section and Data.Section.IsSettings)
+
+            local SetClipboard = setclipboard or toclipboard or (syn and syn.write_clipboard)
+            local GetClipboard = getclipboard or fromclipboard or (syn and syn.read_clipboard)
+
+            local function ParseClipboardColor(Text)
+                if type(Text) ~= "string" then
+                    return nil
+                end
+
+                Text = Text:gsub("%s+", "")
+
+                local Hex = Text:match("^#?([%x][%x][%x][%x][%x][%x])$")
+                if Hex then
+                    local R = tonumber(Hex:sub(1, 2), 16)
+                    local G = tonumber(Hex:sub(3, 4), 16)
+                    local B = tonumber(Hex:sub(5, 6), 16)
+                    return Color3.fromRGB(R, G, B)
+                end
+
+                local R, G, B = Text:match("^[Rr][Gg][Bb][Aa]?%s*%(%s*(%d+)%s*,%s*(%d+)%s*,%s*(%d+)")
+                if R and G and B then
+                    return Color3.fromRGB(math.clamp(tonumber(R), 0, 255), math.clamp(tonumber(G), 0, 255), math.clamp(tonumber(B), 0, 255))
+                end
+
+                R, G, B = Text:match("^(%d+),(%d+),(%d+)$")
+                if R and G and B then
+                    return Color3.fromRGB(math.clamp(tonumber(R), 0, 255), math.clamp(tonumber(G), 0, 255), math.clamp(tonumber(B), 0, 255))
+                end
+
+                return nil
+            end
+
+            function Colorpicker:Copy()
+                if not SetClipboard then
+                    return false
+                end
+
+                return pcall(SetClipboard, Colorpicker.HexValue)
+            end
+
+            function Colorpicker:Paste()
+                if not GetClipboard then
+                    return false
+                end
+
+                local Success, Text = pcall(GetClipboard)
+                if not Success then
+                    return false
+                end
+
+                local Color = ParseClipboardColor(Text)
+                if not Color then
+                    return false
+                end
+
+                Colorpicker:Set(Color, Colorpicker.Alpha)
+                return true
+            end
+
+            if Items["Copy"] then
+                Items["Copy"]:OnHover(function()
+                    Items["Copy"]:Tween({BackgroundColor3 = Library.Theme["Hovered Element"], ImageColor3 = Library.Theme.Text})
+                end, function()
+                    Items["Copy"]:Tween({BackgroundColor3 = Library.Theme.Tab, ImageColor3 = Library.Theme["Inactive Text"]})
+                end)
+
+                Items["Copy"]:Connect("MouseButton1Down", function()
+                    Colorpicker:Copy()
+                end)
+            end
+
+            if Items["Paste"] then
+                Items["Paste"]:OnHover(function()
+                    Items["Paste"]:Tween({BackgroundColor3 = Library.Theme["Hovered Element"], ImageColor3 = Library.Theme.Text})
+                end, function()
+                    Items["Paste"]:Tween({BackgroundColor3 = Library.Theme.Tab, ImageColor3 = Library.Theme["Inactive Text"]})
+                end)
+
+                Items["Paste"]:Connect("MouseButton1Down", function()
+                    Colorpicker:Paste()
+                end)
+            end
 
             function Colorpicker:SetOpen(Bool)
                 if Debounce then 
@@ -1597,7 +1747,11 @@ local Library = {
                 if type(Color) == "table" then
                     Color = Color3.fromRGB(Color[1], Color[2], Color[3])
                 elseif type(Color) == "string" then
-                    Color = Color3.fromHex(Color)
+                    local Parsed = ParseClipboardColor(Color)
+                    if not Parsed then
+                        return false
+                    end
+                    Color = Parsed
                 else
                     Color = Color -- lul
                 end 
@@ -3566,11 +3720,11 @@ Library.Watermark = function(Self, Params)
                     local DeltaX = RotationDelta.X
                     local DeltaY = RotationDelta.Y
 
-                    Yaw = Yaw - math.rad(DeltaX * Sensitivity)
-                    Pitch = ClampPitch(Pitch - math.rad(DeltaY * Sensitivity))
+                    Yaw = Yaw + math.rad(DeltaX * Sensitivity)
+                    Pitch = ClampPitch(Pitch + math.rad(DeltaY * Sensitivity))
 
-                    YawVelocity = -DeltaX * VelocityPower
-                    PitchVelocity = -DeltaY * VelocityPower
+                    YawVelocity = DeltaX * VelocityPower
+                    PitchVelocity = DeltaY * VelocityPower
 
                     LastPosition = Input.Position
                 end
@@ -3826,7 +3980,7 @@ Library.Watermark = function(Self, Params)
         --   Offset     - X: отступ от левого края окна, Y: насколько низ картинки заходит ВНИЗ на окно (минус = выше)
         --   PressScale - во сколько раз меняется ширина/высота при нажатии (по умолчанию 1.05 / 0.88)
         --   Callback   - функция при клике
-        -- Лучше PNG с прозрачным фоном: JPG прозрачность не поддерживает.
+        -- PNG и JPG поддерживаются; JPG просто не имеет прозрачности.
         Library.Mascot = function(Self, Params)
             Params = Params or { }
 
@@ -3976,20 +4130,56 @@ Library.Watermark = function(Self, Params)
                     return Url
                 end
 
-                if not (writefile and getcustomasset and isfile) then
-                    Fail("executor doesn't support writefile/getcustomasset")
+                local GetAsset = getcustomasset or getsynasset
+                if not (writefile and GetAsset and isfile) then
+                    Fail("executor doesn't support writefile + getcustomasset/getsynasset")
                     return nil
                 end
 
-                local Separator = Url:find("?", 1, true) and "&" or "?"
-                local Success, Data = pcall(game.HttpGet, game, Url .. Separator .. "v=" .. os.time())
+                -- Allow an already-downloaded local asset as Url/path too.
+                if isfile(Url) then
+                    local AssetOk, Asset = pcall(GetAsset, Url)
+                    if AssetOk and Asset then
+                        return Asset
+                    end
+                end
 
-                if not Success or type(Data) ~= "string" or #Data < 16 then
-                    Fail("failed to download image: " .. tostring(Data):sub(1, 100))
+                local function Download(TargetUrl)
+                    local Separator = TargetUrl:find("?", 1, true) and "&" or "?"
+                    local Success, Data = pcall(game.HttpGet, game, TargetUrl .. Separator .. "v=" .. os.time())
+                    if Success and type(Data) == "string" and #Data >= 16 then
+                        return Data
+                    end
+
+                    -- Some executors expose a request() API even when game:HttpGet is restricted.
+                    if request then
+                        local Ok, Response = pcall(request, {
+                            Url = TargetUrl,
+                            Method = "GET"
+                        })
+                        if Ok and Response and tonumber(Response.StatusCode or 0) >= 200 and tonumber(Response.StatusCode or 0) < 300 and type(Response.Body) == "string" then
+                            return Response.Body
+                        end
+                    end
+
                     return nil
                 end
 
-                local IsPng = Data:sub(2, 4) == "PNG"
+                local Data = Download(Url)
+
+                -- The example used mimi.jpg while the repository actually ships mimi.png.
+                -- If a JPG URL is a missing file, transparently try the PNG sibling.
+                if not Data and Url:lower():match("%.jpe?g$") then
+                    local PngUrl = Url:gsub("%.[jJ][pP][eE][gG]$", ".png"):gsub("%.[jJ][pP][gG]$", ".png")
+                    Data = Download(PngUrl)
+                end
+
+                if not Data then
+                    Fail("failed to download image (URL returned no usable data)")
+                    return nil
+                end
+
+                local IsPng = Data:sub(1, 8) == "\137PNG\r\n\26\n" or Data:sub(2, 4) == "PNG"
                 local IsJpg = Data:byte(1) == 255 and Data:byte(2) == 216
 
                 if not IsPng and not IsJpg then
@@ -4012,8 +4202,13 @@ Library.Watermark = function(Self, Params)
                     return nil
                 end
 
-                local AssetOk, Asset = pcall(getcustomasset, Path)
-                return AssetOk and Asset or nil
+                local AssetOk, Asset = pcall(GetAsset, Path)
+                if not AssetOk or not Asset then
+                    Fail("failed to create custom asset from image")
+                    return nil
+                end
+
+                return Asset
             end
 
             task.spawn(function()
@@ -4665,31 +4860,45 @@ end
                 Items["Text"].Instance.Text = tostring(Text)
             end
 
-            function Toggle:Colorpicker(Data)
-                Data = Data or { }
+            function Toggle:Colorpicker(Data, Data2, Data3)
+                local Inputs
+                if Data2 ~= nil or Data3 ~= nil then
+                    Inputs = {Data, Data2, Data3}
+                elseif type(Data) == "table" and Data[1] ~= nil then
+                    Inputs = Data
+                else
+                    Inputs = {Data}
+                end
 
-                local Colorpicker = {
-                    Flag = Data.Flag or Data.flag or (Data.Name or Data.name or Toggle.Name),
-                    Default = Data.Default or Data.default or Color3.fromRGB(255, 255, 255),
-                    Callback = Data.Callback or Data.callback or function() end,
-                    Alpha = Data.Alpha or Data.alpha or 0,
+                local Result = { }
+                for Index = 1, math.min(#Inputs, 3) do
+                    local ItemData = Inputs[Index] or { }
+                    local Colorpicker = {
+                        Flag = ItemData.Flag or ItemData.flag or (ItemData.Name or ItemData.name or (Toggle.Name .. "/Color" .. Index)),
+                        Default = ItemData.Default or ItemData.default or Color3.fromRGB(255, 255, 255),
+                        Callback = ItemData.Callback or ItemData.callback or function() end,
+                        Alpha = ItemData.Alpha or ItemData.alpha or 0,
 
-                    Window = Toggle.Window,
-                    Page = Toggle.Page,
-                    Section = Toggle.Section,
-                }
+                        Window = Toggle.Window,
+                        Page = Toggle.Page,
+                        Section = Toggle.Section,
+                    }
 
-                local NewColorpicker, ColorpickerItems = Library:CreateColorpicker({
-                    Parent = Items["SubElements"],
-                    Page = Colorpicker.Page,
-                    Section = Colorpicker.Section,
-                    Flag = Colorpicker.Flag,
-                    Default = Colorpicker.Default,
-                    Callback = Colorpicker.Callback,
-                    Alpha = Colorpicker.Alpha
-                })
+                    local NewColorpicker = Library:CreateColorpicker({
+                        Parent = Items["SubElements"],
+                        Page = Colorpicker.Page,
+                        Section = Colorpicker.Section,
+                        Flag = Colorpicker.Flag,
+                        Default = Colorpicker.Default,
+                        Callback = Colorpicker.Callback,
+                        Alpha = Colorpicker.Alpha,
+                        Clipboard = ItemData.Clipboard,
+                    })
 
-                return NewColorpicker
+                    table.insert(Result, NewColorpicker)
+                end
+
+                return #Result == 1 and Result[1] or Result
             end
 
             function Toggle:Keybind(Data)
@@ -6031,31 +6240,45 @@ end
                 Items["Text"].Instance.Text = tostring(Text)
             end
 
-            function Label:Colorpicker(Data)
-                Data = Data or { }
+            function Label:Colorpicker(Data, Data2, Data3)
+                local Inputs
+                if Data2 ~= nil or Data3 ~= nil then
+                    Inputs = {Data, Data2, Data3}
+                elseif type(Data) == "table" and Data[1] ~= nil then
+                    Inputs = Data
+                else
+                    Inputs = {Data}
+                end
 
-                local Colorpicker = {
-                    Flag = Data.Flag or Data.flag or (Data.Name or Data.name or Label.Name),
-                    Default = Data.Default or Data.default or Color3.fromRGB(255, 255, 255),
-                    Callback = Data.Callback or Data.callback or function() end,
-                    Alpha = Data.Alpha or Data.alpha or 0,
+                local Result = { }
+                for Index = 1, math.min(#Inputs, 3) do
+                    local ItemData = Inputs[Index] or { }
+                    local Colorpicker = {
+                        Flag = ItemData.Flag or ItemData.flag or (ItemData.Name or ItemData.name or (Label.Name .. "/Color" .. Index)),
+                        Default = ItemData.Default or ItemData.default or Color3.fromRGB(255, 255, 255),
+                        Callback = ItemData.Callback or ItemData.callback or function() end,
+                        Alpha = ItemData.Alpha or ItemData.alpha or 0,
 
-                    Window = Label.Window,
-                    Page = Label.Page,
-                    Section = Label.Section,
-                }
+                        Window = Label.Window,
+                        Page = Label.Page,
+                        Section = Label.Section,
+                    }
 
-                local NewColorpicker, ColorpickerItems = Library:CreateColorpicker({
-                    Parent = Items["SubElements"],
-                    Page = Colorpicker.Page,
-                    Section = Colorpicker.Section,
-                    Flag = Colorpicker.Flag,
-                    Default = Colorpicker.Default,
-                    Callback = Colorpicker.Callback,
-                    Alpha = Colorpicker.Alpha
-                })
+                    local NewColorpicker = Library:CreateColorpicker({
+                        Parent = Items["SubElements"],
+                        Page = Colorpicker.Page,
+                        Section = Colorpicker.Section,
+                        Flag = Colorpicker.Flag,
+                        Default = Colorpicker.Default,
+                        Callback = Colorpicker.Callback,
+                        Alpha = Colorpicker.Alpha,
+                        Clipboard = ItemData.Clipboard,
+                    })
 
-                return NewColorpicker
+                    table.insert(Result, NewColorpicker)
+                end
+
+                return #Result == 1 and Result[1] or Result
             end
 
             function Label:Keybind(Data)
