@@ -1,0 +1,254 @@
+
+local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/BugBuster3000/sametlibs/refs/heads/main/Reptillian/Source"))()
+
+local Window = Library:Window({
+    Name = "Reptillian.lua",
+    SubName = "this is wwindow subname",
+    Logo = "rbxassetid://87164893498141"
+})
+
+Window:KeybindList({
+    Name = "Active Keybinds"
+})
+
+Window:ESPPreview({
+    Name = "Character Preview"
+})
+
+local MainPage = Window:Page({
+    Name = "Aimbot",
+    Icon = "rbxassetid://132783180980031"
+})
+
+local LeftColumn = MainPage:Section({
+    Name = "Features",
+    Side = 1
+})
+
+LeftColumn:Toggle({
+    Name = "Enable Aimbot",
+    Flag = "Aimbot",
+    Default = false,
+    Callback = function(Value)
+        print("[Aimbot] Status:", Value)
+    end
+})
+
+local ToggleWithKeybind = LeftColumn:Toggle({
+    Name = "ESP Toggle",
+    Flag = "ESP",
+    Default = true,
+    Callback = function(Value)
+        print("[ESP] Status:", Value)
+    end
+})
+
+ToggleWithKeybind:Keybind({
+    Name = "ESP Key",
+    Flag = "ESPKey",
+    Default = Enum.KeyCode.E,
+    Mode = "Toggle",
+    Callback = function(Toggled)
+        ToggleWithKeybind:Set(Toggled)
+        print("[ESP] Key pressed:", Toggled)
+    end
+})
+
+local ToggleWithColor = LeftColumn:Toggle({
+    Name = "ESP Color",
+    Flag = "ESPColorToggle",
+    Default = true,
+    Callback = function(Value)
+        print("[ESP Color] Toggle:", Value)
+    end
+})
+
+ToggleWithColor:Colorpicker({
+    Flag = "ESPColor",
+    Default = Color3.fromRGB(0, 255, 255),
+    Alpha = 0.8,
+    Callback = function(Color, Alpha)
+        print("[ESP Color] Color:", Color, "Alpha:", Alpha)
+    end
+})
+
+local FullToggle = LeftColumn:Toggle({
+    Name = "Full Control",
+    Flag = "FullControl",
+    Default = false,
+    Callback = function(Value)
+        print("[Full] Status:", Value)
+    end
+})
+
+FullToggle:Keybind({
+    Name = "Full Key",
+    Flag = "FullKey",
+    Default = Enum.KeyCode.R,
+    Mode = "Toggle",
+    Callback = function(Toggled)
+        FullToggle:Set(Toggled)
+    end
+})
+
+FullToggle:Colorpicker({
+    Flag = "FullColor",
+    Default = Color3.fromRGB(255, 100, 0),
+    Alpha = 1,
+    Callback = function(Color, Alpha)
+        print("[Full] Color updated:", Color)
+    end
+})
+
+LeftColumn:Slider({
+    Name = "Aimbot Smoothness",
+    Flag = "Smoothness",
+    Min = 0,
+    Max = 100,
+    Default = 50,
+    Decimals = 1,
+    Suffix = "%",
+    Callback = function(Value)
+        print("[Slider] Value:", Value)
+    end
+})
+
+LeftColumn:Dropdown({
+    Name = "Target Priority",
+    Flag = "Priority",
+    Items = {"Closest", "Lowest HP", "Highest HP", "Crosshair"},
+    Default = "Closest",
+    Callback = function(Value)
+        print("[Dropdown] Selected:", Value)
+    end
+})
+
+LeftColumn:Textbox({
+    Name = "Custom Message",
+    Flag = "Message",
+    Placeholder = "Type your message...",
+    Finished = true,
+    Callback = function(Value)
+        if Value and Value ~= "" then
+            print("[Textbox] Message:", Value)
+        end
+    end
+})
+
+LeftColumn:Button({
+    Name = "Click Me!",
+    Callback = function()
+        print("[Button] Pressed!")
+        Library:Notification({
+            Name = "Button",
+            Description = "You clicked the button!",
+            Duration = 2,
+            Color = Color3.fromRGB(52, 255, 126)
+        })
+    end
+})
+
+local RightColumn = MainPage:Section({
+    Name = "Advanced",
+    Side = 2
+})
+
+local ColorLabel = RightColumn:Label({
+    Name = "Choose Color"
+})
+
+ColorLabel:Colorpicker({
+    Flag = "ColorPicker",
+    Default = Color3.fromRGB(255, 0, 0),
+    Alpha = 1,
+    Callback = function(Color, Alpha)
+        print("[Colorpicker] Color:", Color, "Alpha:", Alpha)
+    end
+})
+
+local KeyLabel = RightColumn:Label({
+    Name = "Set Key"
+})
+
+KeyLabel:Keybind({
+    Name = "Action Key",
+    Flag = "ActionKey",
+    Default = Enum.KeyCode.F,
+    Mode = "Toggle",
+    Callback = function(Toggled)
+        print("[Keybind] Key pressed, state:", Toggled)
+    end
+})
+
+RightColumn:ListBox({
+    Name = "Select Players",
+    Flag = "Players",
+    Items = {"Player1", "Player2", "Player3", "Player4", "Player5"},
+    Default = "Player1",
+    Multi = true,
+    Height = 150,
+    Callback = function(Value)
+        print("[ListBox] Selected:", Value)
+    end
+})
+
+RightColumn:Label({
+    Name = "Standalone Keybind"
+}):Keybind({
+    Name = "Standalone Key",
+    Flag = "StandaloneKey",
+    Default = Enum.KeyCode.G,
+    Mode = "Hold",
+    Callback = function(Toggled)
+        print("[Standalone] Key held:", Toggled)
+    end
+})
+
+RightColumn:Label({
+    Name = "Standalone Color"
+}):Colorpicker({
+    Flag = "StandaloneColor",
+    Default = Color3.fromRGB(0, 255, 0),
+    Alpha = 0.5,
+    Callback = function(Color, Alpha)
+        print("[Standalone Color] Color:", Color, "Alpha:", Alpha)
+    end
+})
+
+RightColumn:Divider()
+
+RightColumn:Button({
+    Name = "Kill All",
+    Callback = function()
+        print("[Button] Kill All pressed!")
+        Library:Notification({
+            Name = "Kill All",
+            Description = "All enemies eliminated!",
+            Duration = 3,
+            Color = Color3.fromRGB(255, 80, 80)
+        })
+    end
+})
+
+RightColumn:Slider({
+    Name = "Volume",
+    Flag = "Volume",
+    Min = 0,
+    Max = 100,
+    Default = 75,
+    Suffix = "%",
+    Callback = function(Value)
+        print("[Volume] Set to:", Value)
+    end
+})
+
+RightColumn:Dropdown({
+    Name = "Weapon",
+    Flag = "Weapon",
+    Items = {"AK-47", "M4A1", "AWP", "Shotgun"},
+    Default = "AK-47",
+    Multi = false,
+    Callback = function(Value)
+        print("[Weapon] Selected:", Value)
+    end
+})
