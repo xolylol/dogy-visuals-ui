@@ -1,4 +1,4 @@
--- DOGY VISUALS UI PATCH v2: Mascot settings + UI click sounds + ESP rotation fix
+-- DOGY VISUALS UI PATCH v5: Editable sliders + color clipboard + mascot rotation + window icons
 --[[
     Made by samet
     Example is at the bottom.
@@ -37,7 +37,7 @@ local GuiInset = GuiService:GetGuiInset().Y
 local Mouse = cloneref(LocalPlayer:GetMouse())
 
 local Library = {
-    BuildVersion = "2026.10.27-mascot-colorpicker-mascot-fix-v3", 
+    BuildVersion = "2026.10.27-mascot-settings-v2", 
     Flags = { },
 
     MenuKeybind = tostring(Enum.KeyCode.X),
@@ -1492,7 +1492,7 @@ local Library = {
                     Visible = false,
                     AutoButtonColor = false,
                     Position = UDim2.new(0, 996, 0, 92),
-                    Size = UDim2.new(0, 250, 0, 250),
+                    Size = UDim2.new(0, 250, 0, 265),
                     BorderSizePixel = 0,
                     BackgroundColor3 = Library.Theme["Background"]
                 }):AddToTheme({BackgroundColor3 = 'Background'})
@@ -1500,7 +1500,7 @@ local Library = {
                 Items["Top"] = Library:Create("Frame", {
                     Name = "\0",
                     Parent = Items["ColorpickerWindow"].Instance,
-                    Size = UDim2.new(1, 0, 0, 38),
+                    Size = UDim2.new(1, 0, 0, 40),
                     BorderSizePixel = 0,
                     BackgroundColor3 = Library.Theme["Inline"]
                 }):AddToTheme({BackgroundColor3 = 'Inline'})
@@ -1519,7 +1519,6 @@ local Library = {
                     Parent = Items["Top"].Instance,
                     BackgroundTransparency = 1,
                     Visible = false,
-                    Active = false,
                     Position = UDim2.new(0, 0, 0, 0),
                     Size = UDim2.new(0, 0, 0, 0),
                     BorderSizePixel = 0
@@ -1538,8 +1537,8 @@ local Library = {
                     Name = "\0",
                     Parent = Items["ColorpickerWindow"].Instance,
                     BackgroundTransparency = 1,
-                    Position = UDim2.new(0, 0, 0, 39),
-                    Size = UDim2.new(1, 0, 1, -39),
+                    Position = UDim2.new(0, 0, 0, 56),
+                    Size = UDim2.new(1, 0, 1, -56),
                     BorderSizePixel = 0
                 })
 
@@ -1549,7 +1548,7 @@ local Library = {
                         Parent = Items["Top"].Instance,
                         AnchorPoint = Vector2.new(0, 0.5),
                         Position = UDim2.new(0, 8, 0.5, 0),
-                        Size = UDim2.new(0, 62, 0, 30),
+                        Size = UDim2.new(0, 150, 0, 30),
                         BackgroundTransparency = 1,
                         BorderSizePixel = 0
                     })
@@ -1571,7 +1570,7 @@ local Library = {
                         local Button = Library:Create("ImageButton", {
                             Name = "\0",
                             Parent = Items["Clipboard"].Instance,
-                            Size = UDim2.new(0, 28, 0, 28),
+                            Size = UDim2.new(0, 27, 0, 27),
                             BackgroundColor3 = Library.Theme["Tab"],
                             BackgroundTransparency = 0,
                             BorderSizePixel = 0,
@@ -1609,6 +1608,27 @@ local Library = {
                         Library:ApplyIcon(Icon.Instance, ButtonData.Icon)
                         Items[ButtonData.Name] = Button
                     end
+
+                    Items["HexInput"] = Library:Create("TextBox", {
+                        Name = "\0",
+                        Parent = Items["Top"].Instance,
+                        AnchorPoint = Vector2.new(1, 0.5),
+                        Position = UDim2.new(1, -8, 0.5, 0),
+                        Size = UDim2.new(0, 82, 0, 26),
+                        BackgroundColor3 = Library.Theme["Tab"],
+                        BorderSizePixel = 0,
+                        TextColor3 = Library.Theme["Text"],
+                        PlaceholderColor3 = Library.Theme["Inactive Text"],
+                        PlaceholderText = "#RRGGBB",
+                        Text = "#FFFFFF",
+                        ClearTextOnFocus = false,
+                        TextXAlignment = Enum.TextXAlignment.Center,
+                        FontFace = Library.Font,
+                        TextSize = Library.FontSize
+                    }):AddToTheme({BackgroundColor3 = "Tab", TextColor3 = "Text", PlaceholderColor3 = "Inactive Text"})
+
+                    Library:Create("UICorner", {Name = "\0", Parent = Items["HexInput"].Instance, CornerRadius = UDim.new(0, 4)})
+                    Library:Create("UIStroke", {Name = "\0", Parent = Items["HexInput"].Instance, Color = Library.Theme["Outline"], ApplyStrokeMode = Enum.ApplyStrokeMode.Border}):AddToTheme({Color = "Outline"})
                 end
 
                 Library:Create("UICorner", {
@@ -1636,6 +1656,9 @@ local Library = {
                 Colorpicker.HexValue = Colorpicker.Color:ToHex()
         
                 Items["ColorpickerButton"]:Tween({BackgroundColor3 = Colorpicker.Color})
+                if Items["HexInput"] and not Items["HexInput"].Instance:IsFocused() then
+                    Items["HexInput"].Instance.Text = "#" .. Colorpicker.HexValue
+                end
 
                 if Items["Palette"] then
                     Items["Palette"]:Tween({BackgroundColor3 = Color3.fromHSV(Hue, 1, 1)})
@@ -1663,8 +1686,8 @@ local Library = {
 
             local IsSettings = Data.IsSettings or Data.Mini or (Data.Section and Data.Section.IsSettings)
 
-            local SetClipboard = setclipboard or toclipboard or (toclipboard and toclipboard) or (syn and syn.write_clipboard)
-            local GetClipboard = getclipboard or fromclipboard or (fromclipboard and fromclipboard) or (syn and syn.read_clipboard)
+            local SetClipboard = setclipboard or toclipboard or (setclipboard and setclipboard) or (syn and syn.write_clipboard)
+            local GetClipboard = getclipboard or fromclipboard or (syn and syn.read_clipboard)
 
             local function ParseClipboardColor(Text)
                 if type(Text) ~= "string" then
@@ -1699,7 +1722,7 @@ local Library = {
                     return false
                 end
 
-                return pcall(SetClipboard, Colorpicker.HexValue)
+                return pcall(SetClipboard, "#" .. Colorpicker.HexValue)
             end
 
             function Colorpicker:Paste()
@@ -1734,6 +1757,9 @@ local Library = {
                 Items["Copy"]:Connect("MouseButton1Click", function()
                     Colorpicker:Copy()
                 end)
+                Items["Copy"]:Connect("Activated", function()
+                    Colorpicker:Copy()
+                end)
             end
 
             if Items["Paste"] then
@@ -1748,6 +1774,21 @@ local Library = {
                 end)
                 Items["Paste"]:Connect("MouseButton1Click", function()
                     Colorpicker:Paste()
+                end)
+                Items["Paste"]:Connect("Activated", function()
+                    Colorpicker:Paste()
+                end)
+            end
+
+            if Items["HexInput"] then
+                Items["HexInput"]:Connect("FocusLost", function()
+                    local Text = tostring(Items["HexInput"].Instance.Text or "")
+                    local Color = ParseClipboardColor(Text)
+                    if Color then
+                        Colorpicker:Set(Color, Colorpicker.Alpha)
+                    else
+                        Items["HexInput"].Instance.Text = "#" .. Colorpicker.HexValue
+                    end
                 end)
             end
 
@@ -1852,13 +1893,11 @@ local Library = {
                     return
                 end
     
-                local AlphaBar = (Items["AlphaHitbox"] and Items["AlphaHitbox"].Instance) or Items["Alpha"].Instance
-                local AlphaWidth = math.max(1, AlphaBar.AbsoluteSize.X)
-                local ValueX = math.clamp((Input.Position.X - AlphaBar.AbsolutePosition.X) / AlphaWidth, 0, 1)
+                local ValueX = math.clamp((Input.Position.X - Items["Alpha"].Instance.AbsolutePosition.X) / Items["Alpha"].Instance.AbsoluteSize.X, 0, 1)
     
                 Colorpicker.Alpha = ValueX
     
-                local SlideX = math.clamp((Input.Position.X - AlphaBar.AbsolutePosition.X) / AlphaWidth, 0, 0.915)
+                local SlideX = math.clamp((Input.Position.X - Items["Alpha"].Instance.AbsolutePosition.X) / Items["Alpha"].Instance.AbsoluteSize.X, 0, 0.915)
     
                 Items["AlphaDragger"]:Tween({Position = UDim2.new(SlideX, 0, 0, 0)}, TweenInfo.new(Library.Animation.Time, Enum.EasingStyle.Quart, Enum.EasingDirection.Out))
                 Colorpicker:Update(true)
@@ -2381,19 +2420,6 @@ end
                         Parent = Items["AlphaDragger"].Instance,
                         Color = Library.Theme["Text"]
                     }):AddToTheme({Color = 'Text'})
-
-                    Items["AlphaHitbox"] = Library:Create("TextButton", {
-                        Name = "\0",
-                        Parent = Items["Color"].Instance,
-                        Text = "",
-                        AutoButtonColor = false,
-                        BackgroundTransparency = 1,
-                        BorderSizePixel = 0,
-                        Position = UDim2.new(0, 10, 1, -10),
-                        Size = UDim2.new(1, -45, 0, 15),
-                        ZIndex = 4,
-                        Active = true
-                    })
                 end
 
             end
@@ -2480,9 +2506,6 @@ end
                 end
 
                 Items["Alpha"]:Connect("InputBegan", BeginAlphaSlide)
-                if Items["AlphaHitbox"] then
-                    Items["AlphaHitbox"]:Connect("InputBegan", BeginAlphaSlide)
-                end
 
                 if Items["Checkers"] then
                     Items["Checkers"]:Connect("InputBegan", BeginAlphaSlide)
@@ -2509,6 +2532,8 @@ end
 
             if Data.Default then
                 Colorpicker:Set(Data.Default, Data.Alpha)
+            else
+                Colorpicker:Update()
             end
     
             SetFlags[Colorpicker.Flag] = function(Value, Alpha)
@@ -3112,6 +3137,7 @@ Library.Watermark = function(Self, Params)
             
             local KeybindList = {
                 Name = Params.Name or Params.name or "Keybind List",
+                Icon = Params.Icon or Params.icon or "",
                 Keys = { },
                 Window = Self,
                 Items = { }
@@ -3143,6 +3169,15 @@ Library.Watermark = function(Self, Params)
                     BottomLeftRadius = UDim.new(0, 0)
                 })
                 
+                if KeybindList.Icon ~= "" then
+                    Items["Icon"] = Library:Create("ImageLabel", {
+                        Name = "\0", Parent = Items["Top"].Instance, BackgroundTransparency = 1,
+                        AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 10, 0.5, 0),
+                        Size = UDim2.new(0, 16, 0, 16), BorderSizePixel = 0, ImageColor3 = Library.Theme["Inactive Text"]
+                    }):AddToTheme({ImageColor3 = "Inactive Text"})
+                    Library:ApplyIcon(Items["Icon"].Instance, KeybindList.Icon)
+                end
+
                 Items["Title"] = Library:Create("TextLabel", {
                     Name = "\0",
                     FontFace = Library.Font,
@@ -3151,7 +3186,7 @@ Library.Watermark = function(Self, Params)
                     TextColor3 = Library.Theme["Text"],
                     Text = KeybindList.Name,
                     AnchorPoint = Vector2.new(0, 0.5),
-                    Position = UDim2.new(0, 12, 0.5, 0),
+                    Position = UDim2.new(0, KeybindList.Icon ~= "" and 32 or 12, 0.5, 0),
                     BackgroundTransparency = 1,
                     TextXAlignment = Enum.TextXAlignment.Left,
                     BorderSizePixel = 0,
@@ -3525,6 +3560,7 @@ Library.Watermark = function(Self, Params)
 
             local ESPPreview = {
                 Name = Params.Name or Params.name or "ESP Preview",
+                Icon = Params.Icon or Params.icon or "",
 
                 Window = Self,
                 Player = nil,
@@ -3571,6 +3607,15 @@ Library.Watermark = function(Self, Params)
                     BottomLeftRadius = UDim.new(0, 0)
                 })
                 
+                if ESPPreview.Icon ~= "" then
+                    Items["Icon"] = Library:Create("ImageLabel", {
+                        Name = "\0", Parent = Items["Top"].Instance, BackgroundTransparency = 1,
+                        AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 10, 0.5, 0),
+                        Size = UDim2.new(0, 16, 0, 16), BorderSizePixel = 0, ImageColor3 = Library.Theme["Inactive Text"]
+                    }):AddToTheme({ImageColor3 = "Inactive Text"})
+                    Library:ApplyIcon(Items["Icon"].Instance, ESPPreview.Icon)
+                end
+
                 Items["Text"] = Library:Create("TextLabel", {
                     Name = "\0",
                     FontFace = Library.Font,
@@ -3579,7 +3624,7 @@ Library.Watermark = function(Self, Params)
                     TextColor3 = Library.Theme["Text"],
                     Text = ESPPreview.Name,
                     AnchorPoint = Vector2.new(0, 0.5),
-                    Position = UDim2.new(0, 12, 0.5, 0),
+                    Position = UDim2.new(0, ESPPreview.Icon ~= "" and 32 or 12, 0.5, 0),
                     BackgroundTransparency = 1,
                     TextXAlignment = Enum.TextXAlignment.Left,
                     BorderSizePixel = 0,
@@ -4256,27 +4301,30 @@ Library.Watermark = function(Self, Params)
             end
 
             function Mascot:SetPosition(X, Y, Z)
-                if X ~= nil then Mascot.Offset = Vector2.new(tonumber(X) or Mascot.Offset.X, Mascot.Offset.Y) end
-                if Y ~= nil then Mascot.Offset = Vector2.new(Mascot.Offset.X, tonumber(Y) or Mascot.Offset.Y) end
-                if Z ~= nil then Mascot.ZIndex = tonumber(Z) or Mascot.ZIndex end
+                local NewX = tonumber(X)
+                local NewY = tonumber(Y)
+                local NewZ = tonumber(Z)
 
-                local MainFrame = Self.Items["MainFrame"] and Self.Items["MainFrame"].Instance
-                if MainFrame then
-                    local FrameSize = MainFrame.AbsoluteSize
-
-                    if FrameSize.X > 1 and FrameSize.Y > 1 then
-                        local MaxX = math.max(0, FrameSize.X - math.max(1, Mascot.Size.X))
-                        local MaxY = math.max(0, FrameSize.Y - math.max(1, Mascot.Size.Y))
-
-                        Mascot.Offset = Vector2.new(
-                            math.clamp(tonumber(Mascot.Offset.X) or 0, 0, MaxX),
-                            math.clamp(tonumber(Mascot.Offset.Y) or 0, 0, MaxY)
-                        )
-                    end
+                if NewX and NewX == NewX and NewX ~= math.huge and NewX ~= -math.huge then
+                    Mascot.Offset = Vector2.new(NewX, Mascot.Offset.Y)
+                end
+                if NewY and NewY == NewY and NewY ~= math.huge and NewY ~= -math.huge then
+                    Mascot.Offset = Vector2.new(Mascot.Offset.X, NewY)
+                end
+                if NewZ and NewZ == NewZ and NewZ ~= math.huge and NewZ ~= -math.huge then
+                    Mascot.ZIndex = math.clamp(NewZ, 1, 100)
                 end
 
-                Items["Image"].Instance.Position = UDim2.new(0, Mascot.Offset.X, 0, Mascot.Offset.Y)
+                -- Keep the requested coordinates. Do not clamp them against AbsoluteSize:
+                -- the old clamp made the mascot jump/disappear while the UI was resizing.
+                Items["Image"].Instance.Position = UDim2.fromOffset(Mascot.Offset.X, Mascot.Offset.Y)
                 Items["Image"].Instance.ZIndex = Mascot.ZIndex
+
+                if Mascot.Visible and Mascot.Loaded then
+                    Items["Image"].Instance.Visible = true
+                    Items["Image"].Instance.Active = true
+                    Items["Image"].Instance.ImageTransparency = 0
+                end
             end
 
             function Mascot:SetSize(Value)
@@ -4286,6 +4334,20 @@ Library.Watermark = function(Self, Params)
                 PressedSize = UDim2.new(0, Number * Mascot.PressScale.X, 0, Number * Mascot.PressScale.Y)
                 Items["Image"].Instance.Size = BaseSize
                 Mascot:SetPosition(Mascot.Offset.X, Mascot.Offset.Y, Mascot.ZIndex)
+                if Mascot.Visible and Mascot.Loaded then
+                    Items["Image"].Instance.Visible = true
+                    Items["Image"].Instance.Active = true
+                    Items["Image"].Instance.ImageTransparency = 0
+                end
+            end
+
+            function Mascot:SetRotation(Value)
+                local Number = tonumber(Value)
+                if not Number or Number ~= Number or Number == math.huge or Number == -math.huge then
+                    return
+                end
+                Mascot.Rotation = math.clamp(Number, -180, 180)
+                Items["Image"].Instance.Rotation = Mascot.Rotation
             end
 
             function Mascot:SetClickSound(SoundId)
@@ -4338,6 +4400,7 @@ Library.Watermark = function(Self, Params)
 
             Self.Mascot = Mascot
             Mascot:SetPosition(Mascot.Offset.X, Mascot.Offset.Y, Mascot.ZIndex)
+            Mascot:SetRotation(Mascot.Rotation)
             return setmetatable(Mascot, Library)
         end
 
@@ -5475,20 +5538,24 @@ end
                 }
                 })
                 
-                Items["Value"] = Library:Create("TextLabel", {
+                Items["Value"] = Library:Create("TextBox", {
                     Name = "\0",
                     FontFace = Library.Font,
                     TextSize = Library.FontSize,
                     Parent = Items["Slider"].Instance,
                     TextColor3 = Library.Theme["Inactive Text"],
-                    Text = "%90 gay",
+                    Text = "0",
+                    PlaceholderText = "0",
+                    PlaceholderColor3 = Library.Theme["Inactive Text"],
                     AnchorPoint = Vector2.new(1, 0),
                     Position = UDim2.new(1, 0, 0, 0),
+                    Size = UDim2.new(0, 78, 0, 18),
                     BackgroundTransparency = 1,
-                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextXAlignment = Enum.TextXAlignment.Right,
                     BorderSizePixel = 0,
-                    AutomaticSize = Enum.AutomaticSize.XY
-                }):AddToTheme({TextColor3 = 'Inactive Text'})                
+                    ClearTextOnFocus = false,
+                    MultiLine = false
+                }):AddToTheme({TextColor3 = 'Inactive Text', PlaceholderColor3 = 'Inactive Text'})
 
                 Slider.Items = Items 
             end
@@ -5581,6 +5648,27 @@ end
             function Slider:SetText(Text)
                 Items["Text"].Instance.Text = tostring(Text)
             end
+
+            local function CommitSliderText()
+                local Text = tostring(Items["Value"].Instance.Text or "")
+                if Slider.Suffix ~= "" then
+                    Text = Text:gsub("%s*" .. Slider.Suffix .. "%s*$", "")
+                end
+                local Number = tonumber(Text)
+                if Number == nil or Number ~= Number or Number == math.huge or Number == -math.huge then
+                    Slider:AnimateValue(Slider.Value)
+                    return
+                end
+                Slider:Set(Number)
+            end
+
+            Items["Value"]:Connect("Focused", function()
+                Items["Value"].Instance.CursorPosition = #Items["Value"].Instance.Text + 1
+            end)
+
+            Items["Value"]:Connect("FocusLost", function(EnterPressed)
+                CommitSliderText()
+            end)
 
             local InputChanged 
             
@@ -7378,8 +7466,8 @@ end
                 MascotSection:Slider({
                     Name = "Position X",
                     Flag = "Mascot/PositionX",
-                    Min = 0,
-                    Max = 1000,
+                    Min = -100,
+                    Max = 800,
                     Default = MascotObject and MascotObject.Offset.X or 6,
                     Decimals = 0,
                     Callback = function(Value)
@@ -7390,9 +7478,9 @@ end
                 MascotSection:Slider({
                     Name = "Position Y",
                     Flag = "Mascot/PositionY",
-                    Min = 0,
-                    Max = 1000,
-                    Default = MascotObject and MascotObject.Offset.Y or 12,
+                    Min = -100,
+                    Max = 600,
+                    Default = MascotObject and MascotObject.Offset.Y or 6,
                     Decimals = 0,
                     Callback = function(Value)
                         if MascotObject then MascotObject:SetPosition(nil, Value, nil) end
@@ -7400,14 +7488,15 @@ end
                 })
 
                 MascotSection:Slider({
-                    Name = "Position Z",
-                    Flag = "Mascot/PositionZ",
-                    Min = 1,
-                    Max = 20,
-                    Default = MascotObject and MascotObject.ZIndex or 3,
+                    Name = "Rotation",
+                    Flag = "Mascot/Rotation",
+                    Min = -180,
+                    Max = 180,
+                    Default = MascotObject and MascotObject.Rotation or 0,
                     Decimals = 0,
+                    Suffix = "°",
                     Callback = function(Value)
-                        if MascotObject then MascotObject:SetPosition(nil, nil, Value) end
+                        if MascotObject then MascotObject:SetRotation(Value) end
                     end
                 })
 
