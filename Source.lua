@@ -2761,6 +2761,20 @@ end
 
             Items["KeybindWindow"]:VisibleCheck()
     
+            function Keybind:SetLinkedState(Bool)
+                Bool = Bool and true or false
+                Keybind.Toggled = Bool
+                Flags[Keybind.Flag] = {
+                    Mode = Keybind.Mode,
+                    Key = Keybind.Key,
+                    Toggled = Keybind.Toggled
+                }
+
+                if ListItem then
+                    ListItem:SetStatus(Keybind.Toggled)
+                end
+            end
+
             function Keybind:SetMode()
                 Flags[Keybind.Flag] = {
                     Mode = Keybind.Mode,
@@ -2818,6 +2832,10 @@ end
                     Key = Keybind.Key,
                     Toggled = Keybind.Toggled
                 }
+
+                if Keybind.LinkedToggle and Keybind.LinkedToggle.Value ~= Keybind.Toggled then
+                    Keybind.LinkedToggle:Set(Keybind.Toggled)
+                end
     
                 if Data.Callback then 
                     Library:SafeCall(Data.Callback, Keybind.Toggled)
@@ -3243,7 +3261,7 @@ Library.Watermark = function(Self, Params)
             
             local KeybindList = {
                 Name = Params.Name or Params.name or "Keybind List",
-                Icon = Params.Icon or Params.icon or "",
+                Icon = Params.Icon or Params.icon or "zap",
                 Keys = { },
                 Window = Self,
                 Items = { }
@@ -3689,7 +3707,7 @@ Library.Watermark = function(Self, Params)
 
             local ESPPreview = {
                 Name = Params.Name or Params.name or "ESP Preview",
-                Icon = Params.Icon or Params.icon or "",
+                Icon = Params.Icon or Params.icon or "smile",
 
                 Window = Self,
                 Player = nil,
@@ -4927,7 +4945,7 @@ Library.Section = function(Self, Params)
     local Section = {
         Name = Params.Name or Params.name or "Section",
         Side = Params.Side or Params.side or 1,
-        Icon = Params.Icon or Params.icon or "",
+        Icon = Params.Icon or Params.icon or "folder",
 
         Window = Self.Window,
         Page = Self,
@@ -5213,6 +5231,13 @@ end
                 end
 
                 Flags[Toggle.Flag] = Bool
+
+                -- Keep a Toggle's optional Keybind and the Keybind List in sync
+                -- even when the toggle is changed from the menu.
+                if Toggle.LinkedKeybind and Toggle.LinkedKeybind.SetLinkedState then
+                    Toggle.LinkedKeybind:SetLinkedState(Bool)
+                end
+
                 Library:SafeCall(Toggle.Callback, Bool)
             end
 
@@ -5290,6 +5315,12 @@ end
                     Mode = Keybind.Mode,
                     Callback = Keybind.Callback
                 })
+
+                Toggle.LinkedKeybind = NewKeybind
+                NewKeybind.LinkedToggle = Toggle
+                if NewKeybind.SetLinkedState then
+                    NewKeybind:SetLinkedState(Toggle.Value)
+                end
 
                 return NewKeybind
             end
@@ -7656,24 +7687,34 @@ end
                 MascotSection:Slider({
                     Name = "Position X",
                     Flag = "Mascot/PositionX",
-                    Min = -100,
-                    Max = 800,
-                    Default = MascotObject and MascotObject.Offset.X or 6,
+                    Min = -400,
+                    Max = 400,
+                    Default = MascotObject and (MascotObject.GetCenteredPosition and select(1, MascotObject:GetCenteredPosition()) or MascotObject.Offset.X) or -222,
                     Decimals = 0,
                     Callback = function(Value)
-                        if MascotObject then MascotObject:SetPosition(Value, nil, nil) end
+                        if MascotObject and MascotObject.SetCenteredPosition then
+                            local _, CurrentY = MascotObject:GetCenteredPosition()
+                            MascotObject:SetCenteredPosition(Value, CurrentY)
+                        elseif MascotObject then
+                            MascotObject:SetPosition(Value, nil, nil)
+                        end
                     end
                 })
 
                 MascotSection:Slider({
                     Name = "Position Y",
                     Flag = "Mascot/PositionY",
-                    Min = -100,
-                    Max = 600,
-                    Default = MascotObject and MascotObject.Offset.Y or 12,
+                    Min = -400,
+                    Max = 400,
+                    Default = MascotObject and (MascotObject.GetCenteredPosition and select(2, MascotObject:GetCenteredPosition()) or MascotObject.Offset.Y) or -333,
                     Decimals = 0,
                     Callback = function(Value)
-                        if MascotObject then MascotObject:SetPosition(nil, Value, nil) end
+                        if MascotObject and MascotObject.SetCenteredPosition then
+                            local CurrentX = select(1, MascotObject:GetCenteredPosition())
+                            MascotObject:SetCenteredPosition(CurrentX, Value)
+                        elseif MascotObject then
+                            MascotObject:SetPosition(nil, Value, nil)
+                        end
                     end
                 })
 
@@ -7710,6 +7751,47 @@ end
                     Callback = function(Value)
                         if MascotObject then
                             MascotObject:SetClickSound(Value == "None" and nil or "102774986031312")
+                        end
+                    end
+                })
+
+                MascotSection:Slider({
+                    Name = "Click Sound Volume",
+                    Flag = "Mascot/ClickVolume",
+                    Min = 0,
+                    Max = 100,
+                    Default = math.floor(((MascotObject and MascotObject.ClickSoundVolume) or Library.MascotClickVolume or 0.8) * 100 + 0.5),
+                    Decimals = 0,
+                    Suffix = "%",
+                    Callback = function(Value)
+                        if MascotObject and MascotObject.SetClickSoundVolume then
+                            MascotObject:SetClickSoundVolume(Value / 100)
+                        end
+                        Library:SetMascotClickVolume(Value / 100)
+                    end
+                })
+
+                MascotSection:Button({
+                    Name = "Reset to Default",
+                    Callback = function()
+                        if MascotObject then
+                            if MascotObject.SetMascot then
+                                local Names = MascotObject:GetNames()
+                                if table.find(Names, "mimi") then
+                                    MascotObject:SetMascot("mimi")
+                                end
+                            end
+                            if MascotObject.SetRotation then
+                                MascotObject:SetRotation(0)
+                            end
+                            if MascotObject.SetSize then
+                                MascotObject:SetSize(120)
+                            end
+                            if MascotObject.SetCenteredPosition then
+                                MascotObject:SetCenteredPosition(-222, -333)
+                            else
+                                MascotObject:SetPosition(-222, -333, nil)
+                            end
                         end
                     end
                 })
@@ -7784,6 +7866,19 @@ end
                     Default = "Simple click",
                     Callback = function(Value)
                         Library:SetUIClickSound(Value == "None" and nil or "88442833509532")
+                    end
+                })
+
+                MenuSection:Slider({
+                    Name = "UI Click Volume",
+                    Flag = "UIClickVolume",
+                    Min = 0,
+                    Max = 100,
+                    Default = math.floor((Library.UIClickVolume or 0.65) * 100 + 0.5),
+                    Decimals = 0,
+                    Suffix = "%",
+                    Callback = function(Value)
+                        Library:SetUIClickVolume(Value / 100)
                     end
                 })
 
