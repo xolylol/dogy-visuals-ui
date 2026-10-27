@@ -1570,34 +1570,6 @@ local Library = {
                     BorderSizePixel = 0
                 })
 
-                Library:Create("UICorner", {
-                            Name = "\0",
-                            Parent = Button.Instance,
-                            CornerRadius = UDim.new(0, 5)
-                        })
-
-                        Library:Create("UIStroke", {
-                            Name = "\0",
-                            Parent = Button.Instance,
-                            Color = Library.Theme["Outline"],
-                            ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-                        }):AddToTheme({Color = "Outline"})
-
-                        local Icon = Library:Create("ImageLabel", {
-                            Name = "\0",
-                            Parent = Button.Instance,
-                            AnchorPoint = Vector2.new(0.5, 0.5),
-                            Position = UDim2.new(0.5, 0, 0.5, 0),
-                            Size = UDim2.new(0, 15, 0, 15),
-                            BackgroundTransparency = 1,
-                            BorderSizePixel = 0,
-                            ImageColor3 = Library.Theme["Inactive Text"]
-                        }):AddToTheme({ImageColor3 = "Inactive Text"})
-
-                        Library:ApplyIcon(Icon.Instance, ButtonData.Icon)
-                        Items[ButtonData.Name] = Button
-                    end
-
                     Items["HexInput"] = Library:Create("TextBox", {
                         Name = "\0",
                         Parent = Items["Top"].Instance,
@@ -1674,9 +1646,6 @@ local Library = {
             local ColorpickerButton = Items["ColorpickerButton"].Instance
 
             local IsSettings = Data.IsSettings or Data.Mini or (Data.Section and Data.Section.IsSettings)
-
-            local SetClipboard = setclipboard or toclipboard or (setclipboard and setclipboard) or (syn and syn.write_clipboard)
-            local GetClipboard = getclipboard or fromclipboard or (syn and syn.read_clipboard)
 
             local function ParseClipboardColor(Text)
                 if type(Text) ~= "string" then
