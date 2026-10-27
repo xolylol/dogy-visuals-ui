@@ -3819,6 +3819,222 @@ Library.Watermark = function(Self, Params)
             return setmetatable(Window, Library)
         end
 
+        -- Mascot: картинка на углу окна. Нажимается (сжимается) и плавно включается/выключается.
+        -- Window:Mascot({Url = "https://.../mimi.png", Size = Vector2.new(120, 120), Offset = Vector2.new(6, 12)})
+        --   Url        - ссылка на картинку (скачивается и кешируется в Assets) или rbxassetid://...
+        --   Size       - размер картинки в пикселях
+        --   Offset     - X: отступ от левого края окна, Y: насколько низ картинки заходит ВНИЗ на окно (минус = выше)
+        --   PressScale - во сколько раз меняется ширина/высота при нажатии (по умолчанию 1.05 / 0.88)
+        --   Callback   - функция при клике
+        -- Лучше PNG с прозрачным фоном: JPG прозрачность не поддерживает.
+        Library.Mascot = function(Self, Params)
+            Params = Params or { }
+
+            local Mascot = {
+                Url = Params.Url or Params.url or "",
+                Size = Params.Size or Params.size or Vector2.new(120, 120),
+                Offset = Params.Offset or Params.offset or Vector2.new(6, 12),
+                PressScale = Params.PressScale or Params.pressscale or Vector2.new(1.05, 0.88),
+                Callback = Params.Callback or Params.callback or function() end,
+
+                Window = Self,
+                Visible = Params.Visible ~= false,
+                Loaded = false,
+                Items = { }
+            }
+
+            local ShowInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+            local HideInfo = TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
+            local PressInfo = TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+            local ReleaseInfo = TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+
+            local BaseSize = UDim2.new(0, Mascot.Size.X, 0, Mascot.Size.Y)
+            local PressedSize = UDim2.new(0, Mascot.Size.X * Mascot.PressScale.X, 0, Mascot.Size.Y * Mascot.PressScale.Y)
+
+            local Items = { } do
+                Items["Image"] = Library:Create("ImageButton", {
+                    Name = "\0",
+                    Parent = Self.Items["MainFrame"].Instance,
+                    AnchorPoint = Vector2.new(0.5, 1),
+                    Position = UDim2.new(0, Mascot.Offset.X + Mascot.Size.X / 2, 0, Mascot.Offset.Y),
+                    Size = BaseSize,
+                    BackgroundTransparency = 1,
+                    BorderSizePixel = 0,
+                    AutoButtonColor = false,
+                    ScaleType = Enum.ScaleType.Fit,
+                    Image = "",
+                    ImageTransparency = 1,
+                    Visible = false,
+                    ZIndex = 3
+                })
+
+                Items["Scale"] = Library:Create("UIScale", {
+                    Name = "\0",
+                    Parent = Items["Image"].Instance,
+                    Scale = 0.85
+                })
+
+                Mascot.Items = Items
+            end
+
+            local Token = 0
+
+            local function Show()
+                Token += 1
+
+                Items["Image"].Instance.Visible = true
+                Items["Image"].Instance.Active = true
+                Items["Scale"]:Tween({Scale = 1}, ShowInfo)
+                Items["Image"]:Tween({ImageTransparency = 0}, ShowInfo)
+            end
+
+            local function Hide()
+                Token += 1
+
+                local Mine = Token
+
+                Items["Image"].Instance.Active = false
+                Items["Scale"]:Tween({Scale = 0.85}, HideInfo)
+                Items["Image"]:Tween({ImageTransparency = 1}, HideInfo)
+
+                task.delay(HideInfo.Time + 0.05, function()
+                    if Library and Token == Mine then
+                        Items["Image"].Instance.Visible = false
+                    end
+                end)
+            end
+
+            function Mascot:SetVisibility(Bool)
+                Bool = Bool and true or false
+
+                if Mascot.Visible == Bool then
+                    return
+                end
+
+                Mascot.Visible = Bool
+
+                if not Mascot.Loaded then
+                    return
+                end
+
+                if Bool then
+                    Show()
+                else
+                    Hide()
+                end
+            end
+
+            -- Сжатие при нажатии
+            local Pressed = false
+
+            local function Squish()
+                if Pressed then
+                    return
+                end
+
+                Pressed = true
+                Items["Image"]:Tween({Size = PressedSize}, PressInfo)
+            end
+
+            local function Release()
+                if not Pressed then
+                    return
+                end
+
+                Pressed = false
+                Items["Image"]:Tween({Size = BaseSize}, ReleaseInfo)
+            end
+
+            Items["Image"]:Connect("MouseButton1Down", Squish)
+            Items["Image"]:Connect("MouseButton1Up", Release)
+            Items["Image"]:Connect("MouseLeave", Release)
+            Items["Image"]:Connect("MouseButton1Click", function()
+                Library:SafeCall(Mascot.Callback)
+            end)
+
+            -- Загрузка картинки (в фоне, чтобы не тормозить создание окна)
+            local function Fail(Text)
+                warn("[Library] Mascot: " .. Text)
+                pcall(function()
+                    Library:Notification({
+                        Name = "Mascot",
+                        Description = Text,
+                        Duration = 8,
+                        Color = Color3.fromRGB(255, 80, 80)
+                    })
+                end)
+            end
+
+            local function LoadImage()
+                local Url = tostring(Mascot.Url)
+
+                if Url == "" then
+                    return nil
+                end
+
+                if Url:match("^rbxasset") or Url:match("^rbxthumb") then
+                    return Url
+                end
+
+                if not (writefile and getcustomasset and isfile) then
+                    Fail("executor doesn't support writefile/getcustomasset")
+                    return nil
+                end
+
+                local Separator = Url:find("?", 1, true) and "&" or "?"
+                local Success, Data = pcall(game.HttpGet, game, Url .. Separator .. "v=" .. os.time())
+
+                if not Success or type(Data) ~= "string" or #Data < 16 then
+                    Fail("failed to download image: " .. tostring(Data):sub(1, 100))
+                    return nil
+                end
+
+                local IsPng = Data:sub(2, 4) == "PNG"
+                local IsJpg = Data:byte(1) == 255 and Data:byte(2) == 216
+
+                if not IsPng and not IsJpg then
+                    Fail("file at Url is not a PNG/JPG (check the link)")
+                    return nil
+                end
+
+                local Folder = Library.Directory .. Library.Folders.Assets
+                pcall(function()
+                    if isfolder and not isfolder(Folder) then
+                        makefolder(Folder)
+                    end
+                end)
+
+                local Path = Folder .. "/mascot." .. (IsPng and "png" or "jpg")
+                pcall(writefile, Path, Data)
+
+                if not isfile(Path) then
+                    Fail("failed to save image")
+                    return nil
+                end
+
+                local AssetOk, Asset = pcall(getcustomasset, Path)
+                return AssetOk and Asset or nil
+            end
+
+            task.spawn(function()
+                local Asset = LoadImage()
+
+                if not Library or not Asset or not Items["Image"].Instance.Parent then
+                    return
+                end
+
+                Items["Image"].Instance.Image = Asset
+                Mascot.Loaded = true
+
+                if Mascot.Visible then
+                    Show()
+                end
+            end)
+
+            Self.Mascot = Mascot
+            return setmetatable(Mascot, Library)
+        end
+
         Library.Page = function(Self, Params)
             Params = Params or { }
 
@@ -4677,6 +4893,19 @@ end
 
             local SubButton
 
+            -- Цвет и текст меняются сразу и одновременно (без твина), поэтому ничего не мигает
+            local function SetLook(Armed)
+                local Text = SubButton.Items["Text"]
+
+                Text:ChangeItemTheme({TextColor3 = Armed and "Accent" or "Text"})
+                Text.Instance.TextColor3 = Armed and Library.Theme["Accent"] or Library.Theme["Text"]
+            end
+
+            local function Restore()
+                SubButton.Items["Text"].Instance.Text = State.OriginalText
+                SetLook(false)
+            end
+
             local function Disarm()
                 if not State.Armed then
                     return
@@ -4685,10 +4914,7 @@ end
                 State.Armed = false
                 State.Token += 1
 
-                local Text = SubButton.Items["Text"]
-                Text.Instance.Text = State.OriginalText
-                Text:ChangeItemTheme({TextColor3 = "Text"})
-                Text:Tween({TextColor3 = Library.Theme["Text"]})
+                Restore()
             end
 
             local function Arm()
@@ -4700,8 +4926,7 @@ end
 
                 State.OriginalText = Text.Instance.Text
                 Text.Instance.Text = tostring(SubButton.ConfirmText)
-                Text:ChangeItemTheme({TextColor3 = "Accent"})
-                Text:Tween({TextColor3 = Library.Theme["Accent"]})
+                SetLook(true)
 
                 task.delay(tonumber(SubButton.ConfirmTime) or 1.5, function()
                     if not Library or State.Token ~= Token or not State.Armed then
@@ -4719,13 +4944,37 @@ end
                     return
                 end
 
-                Disarm()
+                -- Подтверждение: отменяем таймер, но надпись пока НЕ возвращаем,
+                -- чтобы перед Unload не мелькало старое название
+                State.Armed = false
+                State.Token += 1
+
                 Library:SafeCall(RealCallback)
+
+                -- Возвращаем надпись уже после колбэка (если библиотека не выгружена)
+                task.defer(function()
+                    if not Library then
+                        return
+                    end
+
+                    local Text = SubButton.Items["Text"]
+                    if Text.Instance.Parent then
+                        Restore()
+                    end
+                end)
             end
 
             SubButton = Library.Button(Self, Options)
             SubButton.ConfirmText = Params.ConfirmText or "are you sure?"
             SubButton.ConfirmTime = Params.ConfirmTime or 1.5
+
+            -- Надпись занимает всю кнопку и выровнена по центру: размер не прыгает при смене текста
+            local Label = SubButton.Items["Text"].Instance
+            Label.AutomaticSize = Enum.AutomaticSize.None
+            Label.AnchorPoint = Vector2.new(0, 0)
+            Label.Position = UDim2.new(0, 0, 0, 0)
+            Label.Size = UDim2.new(1, 0, 1, 0)
+            Label.TextXAlignment = Enum.TextXAlignment.Center
 
             function SubButton:Disarm()
                 Disarm()
@@ -6801,6 +7050,17 @@ end
                         Default = true,
                         Callback = function(Value)
                             Self.ESPPreview:SetVisibility(Value)
+                        end
+                    })
+                end
+
+                if Self.Mascot then
+                    MenuSection:Toggle({
+                        Name = "Mascot",
+                        Flag = "Mascot",
+                        Default = true,
+                        Callback = function(Value)
+                            Self.Mascot:SetVisibility(Value)
                         end
                     })
                 end
