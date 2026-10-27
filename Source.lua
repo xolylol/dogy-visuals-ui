@@ -42,7 +42,7 @@ local Library = {
     Directory = "vaping it",
 
     -- Ссылка на твой Icons.lua (raw) в репозитории
-    IconsUrl = "https://raw.githubusercontent.com/YOUR_NAME/YOUR_REPO/main/Icons.lua",
+    IconsUrl = "https://raw.githubusercontent.com/xolylol/dogy-visuals-ui/main/lucide-roblox.luau",
     Folders = {
         Assets = "/Assets",
         Configs = "/Configs"
