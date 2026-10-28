@@ -5425,6 +5425,101 @@ end
                     SortOrder = Enum.SortOrder.LayoutOrder
                 })                
             
+                -- Optional per-toggle Options gear. This is additive: toggles without
+                -- Toggle:Options(...) keep their original appearance and behaviour.
+                Items["OptionsButton"] = Library:Create("TextButton", {
+                    Name = "\0",
+                    Parent = Items["SubElements"].Instance,
+                    BackgroundTransparency = 1,
+                    BorderSizePixel = 0,
+                    AutoButtonColor = false,
+                    Text = "⚙",
+                    FontFace = Library.Font,
+                    TextSize = Library.FontSize + 2,
+                    TextColor3 = Library.Theme["Inactive Text"],
+                    Size = UDim2.new(0, 0, 1, 0),
+                    Visible = false,
+                    LayoutOrder = 100
+                }):AddToTheme({TextColor3 = "Inactive Text"})
+
+                Items["OptionsWindow"] = Library:Create("Frame", {
+                    Name = "\0",
+                    Parent = Parent.Instance.Parent,
+                    Visible = false,
+                    BorderSizePixel = 0,
+                    BackgroundColor3 = Library.Theme["Background"],
+                    Size = UDim2.fromOffset(230, 250),
+                    Position = UDim2.fromOffset(0, 0),
+                    ZIndex = 100,
+                    ClipsDescendants = true
+                }):AddToTheme({BackgroundColor3 = "Background"})
+
+                Library:Create("UICorner", {
+                    Parent = Items["OptionsWindow"].Instance,
+                    CornerRadius = UDim.new(0, 6)
+                })
+                Library:Create("UIStroke", {
+                    Parent = Items["OptionsWindow"].Instance,
+                    Color = Library.Theme["Outline"],
+                    Thickness = 1
+                }):AddToTheme({Color = "Outline"})
+
+                Items["OptionsHeader"] = Library:Create("TextLabel", {
+                    Parent = Items["OptionsWindow"].Instance,
+                    BackgroundTransparency = 1,
+                    BorderSizePixel = 0,
+                    Position = UDim2.fromOffset(10, 0),
+                    Size = UDim2.new(1, -38, 0, 30),
+                    FontFace = Library.Font,
+                    TextSize = Library.FontSize,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    Text = Toggle.Name .. " Options",
+                    TextColor3 = Library.Theme["Text"],
+                    ZIndex = 101
+                }):AddToTheme({TextColor3 = "Text"})
+
+                Items["OptionsClose"] = Library:Create("TextButton", {
+                    Parent = Items["OptionsWindow"].Instance,
+                    BackgroundTransparency = 1,
+                    BorderSizePixel = 0,
+                    AnchorPoint = Vector2.new(1, 0),
+                    Position = UDim2.new(1, -6, 0, 4),
+                    Size = UDim2.fromOffset(22, 22),
+                    FontFace = Library.Font,
+                    TextSize = Library.FontSize,
+                    Text = "×",
+                    TextColor3 = Library.Theme["Inactive Text"],
+                    AutoButtonColor = false,
+                    ZIndex = 102
+                }):AddToTheme({TextColor3 = "Inactive Text"})
+
+                Items["OptionsContent"] = Library:Create("ScrollingFrame", {
+                    Parent = Items["OptionsWindow"].Instance,
+                    BackgroundTransparency = 1,
+                    BorderSizePixel = 0,
+                    Position = UDim2.fromOffset(8, 32),
+                    Size = UDim2.new(1, -16, 1, -40),
+                    CanvasSize = UDim2.new(0, 0, 0, 0),
+                    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+                    ScrollBarThickness = 2,
+                    ScrollBarImageColor3 = Library.Theme["Accent"],
+                    ZIndex = 101
+                }):AddToTheme({ScrollBarImageColor3 = "Accent"})
+
+                Library:Create("UIListLayout", {
+                    Parent = Items["OptionsContent"].Instance,
+                    FillDirection = Enum.FillDirection.Vertical,
+                    SortOrder = Enum.SortOrder.LayoutOrder,
+                    Padding = UDim.new(0, 6)
+                })
+                Library:Create("UIPadding", {
+                    Parent = Items["OptionsContent"].Instance,
+                    PaddingTop = UDim.new(0, 3),
+                    PaddingBottom = UDim.new(0, 4),
+                    PaddingLeft = UDim.new(0, 2),
+                    PaddingRight = UDim.new(0, 2)
+                })
+
                 Toggle.Items = Items
             end
 
@@ -5470,6 +5565,77 @@ end
 
             function Toggle:SetText(Text)
                 Items["Text"].Instance.Text = tostring(Text)
+                if Items["OptionsHeader"] then
+                    Items["OptionsHeader"].Instance.Text = tostring(Text) .. " Options"
+                end
+            end
+
+            -- Toggle:Options(function(OptionsSection) ... end)
+            -- The callback receives a section-like object with the normal controls API.
+            function Toggle:Options(Builder)
+                if type(Builder) ~= "function" then
+                    return Items["OptionsWindow"]
+                end
+
+                if Toggle.OptionsBuilt then
+                    Items["OptionsWindow"].Instance.Visible = not Items["OptionsWindow"].Instance.Visible
+                    return Toggle.OptionsSection
+                end
+
+                local OptionsSection = setmetatable({
+                    Name = Toggle.Name .. " Options",
+                    Window = Toggle.Window,
+                    Page = Toggle.Page,
+                    Section = Toggle.Section,
+                    IsSettings = true,
+                    Items = {
+                        ["Content"] = Items["OptionsContent"]
+                    }
+                }, Library)
+
+                Toggle.OptionsSection = OptionsSection
+                Toggle.OptionsBuilt = true
+
+                local function PositionOptions()
+                    local Popup = Items["OptionsWindow"].Instance
+                    local Anchor = Items["Toggle"].Instance
+                    local ParentFrame = Popup.Parent
+                    local x = Anchor.AbsolutePosition.X - ParentFrame.AbsolutePosition.X
+                        + Anchor.AbsoluteSize.X - Popup.AbsoluteSize.X
+                    local y = Anchor.AbsolutePosition.Y - ParentFrame.AbsolutePosition.Y
+                        + Anchor.AbsoluteSize.Y + 4
+                    x = math.max(0, math.min(x, ParentFrame.AbsoluteSize.X - Popup.AbsoluteSize.X))
+                    if y + Popup.AbsoluteSize.Y > ParentFrame.AbsoluteSize.Y then
+                        y = math.max(0, Anchor.AbsolutePosition.Y - ParentFrame.AbsolutePosition.Y - Popup.AbsoluteSize.Y - 4)
+                    end
+                    Popup.Position = UDim2.fromOffset(x, y)
+                end
+
+                local function CloseOptions()
+                    Items["OptionsWindow"].Instance.Visible = false
+                end
+
+                Items["OptionsButton"]:Connect("MouseButton1Click", function()
+                    local Popup = Items["OptionsWindow"].Instance
+                    if Popup.Visible then
+                        CloseOptions()
+                    else
+                        PositionOptions()
+                        Popup.Visible = true
+                    end
+                end)
+                Items["OptionsClose"]:Connect("MouseButton1Click", CloseOptions)
+
+                Items["OptionsButton"].Instance.Visible = true
+                Items["OptionsButton"].Instance.Size = UDim2.new(0, 16, 1, 0)
+                Items["OptionsButton"]:OnHover(function()
+                    Items["OptionsButton"]:Tween({TextColor3 = Library.Theme["Text"]})
+                end, function()
+                    Items["OptionsButton"]:Tween({TextColor3 = Library.Theme["Inactive Text"]})
+                end)
+
+                Library:SafeCall(Builder, OptionsSection)
+                return OptionsSection
             end
 
             function Toggle:Colorpicker(Data, Data2, Data3)
