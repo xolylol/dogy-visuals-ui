@@ -1,10 +1,7 @@
--- Dogy Visuals UI Library
--- Reusable UI components, themes, configs, keybinds, notifications, and UI settings.
--- This file contains the library only; usage examples should be kept in a separate script.
-
 -- DOGY VISUALS UI PATCH v6: mascot reference position, accent icons, keybind registry, clipboard notifications, visibility animations
 --[[
     Made by samet
+    Example is at the bottom.
 
     Date:
     7/30/2026 11:53 PM
@@ -4763,7 +4760,6 @@ Library.Watermark = function(Self, Params)
             function Window:SetOpen(Bool)
                 Bool = not not Bool
                 if Window.IsOpen == Bool then
-                    -- Keep overlay visibility synchronized even if the state was already correct.
                     local KeyListObject = Window.KeybindList
                     if type(KeyListObject) == "table" and KeyListObject.SetVisibility then
                         KeyListObject:SetVisibility(Bool)
@@ -4782,12 +4778,11 @@ Library.Watermark = function(Self, Params)
 
                 Items["MainFrame"]:FadeDescendants(Bool, function()
                     if OpenTransition == Transition then
-                        -- Visibility is controlled by the actual GUI state, not keypress count.
                         Window.IsOpen = Bool
                     end
                 end)
 
-                for Index, Value in Library.OpenFrames do
+                for _, Value in Library.OpenFrames do
                     Value:SetOpen(false)
                 end
             end
@@ -8812,6 +8807,58 @@ end
                     end
                 })
 
+                ConfigsSection:Divider()
+
+                local ConfigJSON = ""
+                local ConfigJSONBox = ConfigsSection:Textbox({
+                    Name = "Config JSON",
+                    Flag = "ConfigJSON",
+                    Placeholder = "Paste config JSON here",
+                    Callback = function(Value)
+                        ConfigJSON = tostring(Value or "")
+                    end
+                })
+
+                ConfigsSection:Button({
+                    Name = "Import config JSON",
+                    Callback = function()
+                        if ConfigJSON == "" then
+                            Notify("Error", "Empty JSON", "Paste a config JSON first.")
+                            return
+                        end
+
+                        local Valid, Decoded = pcall(HttpService.JSONDecode, HttpService, ConfigJSON)
+                        if not Valid or type(Decoded) ~= "table" then
+                            Notify("Error", "Invalid JSON", "The pasted text is not a valid config.")
+                            return
+                        end
+
+                        local Success, Err = Library:LoadConfig(ConfigJSON)
+                        if Success then
+                            Notify("Success", "Config imported", "JSON config loaded.")
+                        else
+                            Notify("Warning", "Import had errors", tostring(Err))
+                        end
+                    end
+                })
+
+                ConfigsSection:Button({
+                    Name = "Export current config",
+                    Callback = function()
+                        local Data = Library:GetConfig()
+                        if not Data then
+                            Notify("Error", "Export failed", "Current settings could not be read.")
+                            return
+                        end
+
+                        ConfigJSONBox:Set(Data)
+                        if setclipboard then
+                            pcall(setclipboard, Data)
+                        end
+                        Notify("Success", "Config exported", setclipboard and "JSON placed in the box and copied to clipboard." or "JSON placed in the box.")
+                    end
+                })
+
                 Library:GetConfigsList(ConfigsList)
                 RefreshAutoloadLabel()
             end
@@ -9009,6 +9056,39 @@ end
                 ThemingSection:Button({
                     Name = "Refresh theme list",
                     Callback = RefreshThemes
+                })
+
+                ThemingSection:Divider()
+                local ThemeJSONBox = ThemingSection:Textbox({
+                    Name = "Theme JSON",
+                    Flag = "ThemeJSON",
+                    Placeholder = "Paste theme JSON here",
+                    Callback = function(Value)
+                        ThemeJSON = tostring(Value or "")
+                    end
+                })
+
+                ThemingSection:Button({
+                    Name = "Import theme",
+                    Callback = function()
+                        if ThemeJSON == "" then
+                            Notify("Error", "Empty JSON", "Paste a theme JSON first.")
+                            return
+                        end
+                        local Success, Err = ApplyThemeJSON(ThemeJSON)
+                        if Success then Notify("Success", "Theme imported", "JSON theme applied.")
+                        else Notify("Error", "Invalid theme JSON", tostring(Err)) end
+                    end
+                })
+
+                ThemingSection:Button({
+                    Name = "Export current theme",
+                    Callback = function()
+                        local Data = ThemeToJSON()
+                        ThemeJSONBox:Set(Data)
+                        if setclipboard then pcall(setclipboard, Data) end
+                        Notify("Success", "Theme exported", setclipboard and "JSON placed in the box and copied to clipboard." or "JSON placed in the box.")
+                    end
                 })
 
                 local DefaultThemeFile = Library.Directory .. "/default-theme.txt"
@@ -9211,7 +9291,7 @@ end
 
                 local Toggles = {
                     { "Watermark", "Watermark" },
-                    { "KeybindList", "Hotkeys List" },
+                    { "KeybindList", "Keybind List" },
                     { "ESPPreview", "ESP Preview" },
                     { "Mascot", "Mascot" },
                 }
