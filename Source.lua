@@ -5373,12 +5373,6 @@ end
                     BackgroundColor3 = Library.Theme["Inline"]
                 }):AddToTheme({BackgroundColor3 = "Inline"})
 
-                Items["WindowScale"] = Library:Create("UIScale", {
-                    Name = "\0",
-                    Parent = Items["OptionsWindow"].Instance,
-                    Scale = 1
-                })
-
                 Library:Create("UIPadding", {
                     Name = "\0",
                     Parent = Items["OptionsWindow"].Instance,
@@ -5519,7 +5513,8 @@ end
                     Direction = -1
                 end
 
-                return UDim2.fromOffset(X, Y + Offset * Direction)
+                -- whole pixels only: fractional offsets make Roblox text blurry / shimmery
+                return UDim2.fromOffset(math.floor(X + 0.5), math.floor(Y + Offset * Direction + 0.5))
             end
 
             local function StopFollow()
@@ -5564,10 +5559,8 @@ end
                 if Options.IsOpen then
                     PopupWindow.Position = GetTarget(-SlideOffset)
                     PopupWindow.Parent = Library.Holder.Instance
-                    Items["WindowScale"].Instance.Scale = 0.94
 
                     Items["OptionsWindow"]:Tween({Position = GetTarget(0)})
-                    Items["WindowScale"]:Tween({Scale = 1})
 
                     Items["OptionsWindow"]:FadeDescendants(true, function()
                         Debounce = false
@@ -5586,7 +5579,6 @@ end
                     StopFollow()
 
                     Items["OptionsWindow"]:Tween({Position = GetTarget(-SlideOffset)})
-                    Items["WindowScale"]:Tween({Scale = 0.94})
 
                     Items["OptionsWindow"]:FadeDescendants(false, function()
                         PopupWindow.Parent = Library.UnusedHolder.Instance
