@@ -5274,6 +5274,389 @@ Library.Section = function(Self, Params)
     return setmetatable(Section, Library)
 end
 
+        -- ============================================================
+        -- OPTIONS (gear popup) - PART 1/3
+        -- Paste right BEFORE `Library.Toggle = function(Self, Params)`
+        --
+        -- Toggle:Options({ Name = "Options", Width = 250, Icon = "settings" })
+        -- Label:Options({ ... })
+        -- Returns an object that works like a Section: every element
+        -- (Toggle, Slider, Dropdown, Label, Button, SubButton, Textbox,
+        -- Divider, ListBox, Colorpicker, Keybind) can be added to it.
+        -- ============================================================
+        Library.CreateOptions = function(Self, Data)
+            Data = Data or { }
+
+            local Options = {
+                Name = Data.Name or Data.name or "Options",
+                Width = Data.Width or Data.width or 250,
+                Icon = Data.Icon or Data.icon or "settings",
+
+                IsOpen = false,
+                IsSettings = true, -- dropdown / colorpicker / keybind popups opened inside render above this window
+
+                Window = Data.Window,
+                Page = Data.Page,
+
+                Items = { }
+            }
+
+            local WindowZIndex = 3
+            local SlideOffset = 10
+            local Items = { }
+            local ColorProperty = "ImageColor3"
+
+            do
+                local IconData = Library:GetIcon(Options.Icon)
+
+                -- gear button (lives in the SubElements row of the toggle / label)
+                Items["GearButton"] = Library:Create("TextButton", {
+                    Name = "\0",
+                    FontFace = Library.Font,
+                    TextSize = Library.FontSize,
+                    Parent = Data.Parent.Instance,
+                    Text = "",
+                    AutoButtonColor = false,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(0, 16, 0, 16),
+                    LayoutOrder = 100, -- always the right-most sub element
+                    BorderSizePixel = 0
+                })
+
+                if IconData then
+                    Items["Gear"] = Library:Create("ImageLabel", {
+                        Name = "\0",
+                        Parent = Items["GearButton"].Instance,
+                        AnchorPoint = Vector2.new(0.5, 0.5),
+                        Position = UDim2.new(0.5, 0, 0.5, 0),
+                        Size = UDim2.new(1, 0, 1, 0),
+                        BackgroundTransparency = 1,
+                        BorderSizePixel = 0,
+                        Image = IconData.Image,
+                        ImageRectSize = IconData.ImageRectSize or Vector2.new(0, 0),
+                        ImageRectOffset = IconData.ImageRectOffset or Vector2.new(0, 0),
+                        ImageColor3 = Library.Theme["Inactive Text"]
+                    }):AddToTheme({ImageColor3 = "Inactive Text"})
+                else
+                    -- Icons.lua could not be loaded: text fallback
+                    ColorProperty = "TextColor3"
+                    Items["Gear"] = Library:Create("TextLabel", {
+                        Name = "\0",
+                        FontFace = Library.Font,
+                        TextSize = Library.FontSize + 4,
+                        Parent = Items["GearButton"].Instance,
+                        AnchorPoint = Vector2.new(0.5, 0.5),
+                        Position = UDim2.new(0.5, 0, 0.5, 0),
+                        Size = UDim2.new(1, 0, 1, 0),
+                        BackgroundTransparency = 1,
+                        BorderSizePixel = 0,
+                        Text = utf8.char(0x2699),
+                        TextColor3 = Library.Theme["Inactive Text"]
+                    }):AddToTheme({TextColor3 = "Inactive Text"})
+                end
+
+                -- popup window (same look as the keybind / colorpicker windows)
+                Items["OptionsWindow"] = Library:Create("TextButton", {
+                    Name = "\0",
+                    FontFace = Library.Font,
+                    TextSize = Library.FontSize,
+                    Parent = Library.Holder.Instance,
+                    TextColor3 = Color3.fromRGB(0, 0, 0),
+                    Text = "",
+                    Visible = false,
+                    AutoButtonColor = false,
+                    AnchorPoint = Vector2.new(1, 0),
+                    Size = UDim2.new(0, Options.Width, 0, 0),
+                    Position = UDim2.new(0, 0, 0, 0),
+                    BorderSizePixel = 0,
+                    AutomaticSize = Enum.AutomaticSize.Y,
+                    BackgroundColor3 = Library.Theme["Inline"]
+                }):AddToTheme({BackgroundColor3 = "Inline"})
+
+                Items["WindowScale"] = Library:Create("UIScale", {
+                    Name = "\0",
+                    Parent = Items["OptionsWindow"].Instance,
+                    Scale = 1
+                })
+
+                Library:Create("UIPadding", {
+                    Name = "\0",
+                    Parent = Items["OptionsWindow"].Instance,
+                    PaddingTop = UDim.new(0, 10),
+                    PaddingBottom = UDim.new(0, 12),
+                    PaddingRight = UDim.new(0, 12),
+                    PaddingLeft = UDim.new(0, 12)
+                })
+
+                Library:Create("UIStroke", {
+                    Name = "\0",
+                    Parent = Items["OptionsWindow"].Instance,
+                    Color = Library.Theme["Outline"],
+                    ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                }):AddToTheme({Color = "Outline"})
+
+                Library:Create("UICorner", {
+                    Name = "\0",
+                    Parent = Items["OptionsWindow"].Instance,
+                    CornerRadius = UDim.new(0, 6)
+                })
+
+                Library:Create("UIListLayout", {
+                    Name = "\0",
+                    Parent = Items["OptionsWindow"].Instance,
+                    Padding = UDim.new(0, 8),
+                    SortOrder = Enum.SortOrder.LayoutOrder
+                })
+
+                -- header: accent pill + title
+                Items["Header"] = Library:Create("Frame", {
+                    Name = "\0",
+                    Parent = Items["OptionsWindow"].Instance,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, 18),
+                    LayoutOrder = 1,
+                    BorderSizePixel = 0
+                })
+
+                Items["Pill"] = Library:Create("Frame", {
+                    Name = "\0",
+                    Parent = Items["Header"].Instance,
+                    AnchorPoint = Vector2.new(0, 0.5),
+                    Position = UDim2.new(0, 0, 0.5, 0),
+                    Size = UDim2.new(0, 3, 0, 12),
+                    BorderSizePixel = 0,
+                    BackgroundColor3 = Library.Theme["Accent"]
+                }):AddToTheme({BackgroundColor3 = "Accent"})
+
+                Library:Create("UICorner", {
+                    Name = "\0",
+                    Parent = Items["Pill"].Instance,
+                    CornerRadius = UDim.new(1, 0)
+                })
+
+                Items["Title"] = Library:Create("TextLabel", {
+                    Name = "\0",
+                    FontFace = Library.Font,
+                    TextSize = Library.FontSize + 1,
+                    Parent = Items["Header"].Instance,
+                    TextColor3 = Library.Theme["Text"],
+                    Text = Options.Name,
+                    AnchorPoint = Vector2.new(0, 0.5),
+                    Position = UDim2.new(0, 11, 0.5, 0),
+                    Size = UDim2.new(1, -11, 1, 0),
+                    BackgroundTransparency = 1,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextTruncate = Enum.TextTruncate.AtEnd,
+                    BorderSizePixel = 0
+                }):AddToTheme({TextColor3 = "Text"})
+
+                Items["Separator"] = Library:Create("Frame", {
+                    Name = "\0",
+                    Parent = Items["OptionsWindow"].Instance,
+                    Size = UDim2.new(1, 0, 0, 2),
+                    LayoutOrder = 2,
+                    BorderSizePixel = 0,
+                    BackgroundColor3 = Library.Theme["Background"]
+                }):AddToTheme({BackgroundColor3 = "Background"})
+
+                Library:Create("UICorner", {
+                    Name = "\0",
+                    Parent = Items["Separator"].Instance,
+                    CornerRadius = UDim.new(1, 0)
+                })
+
+                -- content: every element goes in here (Section-compatible)
+                Items["Content"] = Library:Create("Frame", {
+                    Name = "\0",
+                    Parent = Items["OptionsWindow"].Instance,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, 0),
+                    LayoutOrder = 3,
+                    BorderSizePixel = 0,
+                    AutomaticSize = Enum.AutomaticSize.Y
+                })
+
+                Library:Create("UIListLayout", {
+                    Name = "\0",
+                    Parent = Items["Content"].Instance,
+                    Padding = UDim.new(0, 6),
+                    SortOrder = Enum.SortOrder.LayoutOrder
+                })
+
+                Options.Items = Items
+            end
+
+            local GearButton = Items["GearButton"].Instance
+            local PopupWindow = Items["OptionsWindow"].Instance
+
+            local Hovering = false
+            local Debounce = false
+            local FollowConnection
+
+            local function UpdateGear()
+                local Key = Options.IsOpen and "Accent" or (Hovering and "Text" or "Inactive Text")
+
+                Items["Gear"]:ChangeItemTheme({[ColorProperty] = Key})
+                Items["Gear"]:Tween({
+                    [ColorProperty] = Library.Theme[Key],
+                    Rotation = Options.IsOpen and 90 or 0
+                }, TweenInfo.new(0.45, Enum.EasingStyle.Quart, Enum.EasingDirection.Out))
+            end
+
+            -- popup sits under the gear, right edges aligned; flips above / clamps when near a screen edge
+            local function GetTarget(Offset)
+                local Screen = Library.Holder.Instance.AbsoluteSize
+                local Height = PopupWindow.AbsoluteSize.Y
+
+                local X = GearButton.AbsolutePosition.X + GearButton.AbsoluteSize.X
+                X = math.clamp(X, Options.Width + 8, math.max(Screen.X - 8, Options.Width + 8))
+
+                local Y = GearButton.AbsolutePosition.Y + GearButton.AbsoluteSize.Y + GuiInset + 6
+                local Direction = 1
+
+                if Height > 0 and Y + Height > Screen.Y - 8 then
+                    Y = GearButton.AbsolutePosition.Y + GuiInset - Height - 6
+                    Direction = -1
+                end
+
+                return UDim2.fromOffset(X, Y + Offset * Direction)
+            end
+
+            local function StopFollow()
+                if FollowConnection then
+                    FollowConnection:Disconnect()
+                    FollowConnection = nil
+                end
+            end
+
+            local function StartFollow()
+                StopFollow()
+
+                FollowConnection = RunService.RenderStepped:Connect(function()
+                    if not Options.IsOpen then
+                        return
+                    end
+
+                    -- page was switched / library unloaded / main window closed
+                    local MainWindow = Options.Window
+                    if not GearButton:IsDescendantOf(Library.Holder.Instance)
+                    or (type(MainWindow) == "table" and MainWindow.IsOpen == false) then
+                        Options:SetOpen(false)
+                        return
+                    end
+
+                    PopupWindow.Position = GetTarget(0)
+                end)
+
+                table.insert(Library.Connections, FollowConnection)
+            end
+
+            function Options:SetOpen(Bool)
+                Bool = Bool and true or false
+
+                if Debounce or Options.IsOpen == Bool then
+                    return
+                end
+
+                Options.IsOpen = Bool
+                Debounce = true
+
+                if Options.IsOpen then
+                    PopupWindow.Position = GetTarget(-SlideOffset)
+                    PopupWindow.Parent = Library.Holder.Instance
+                    Items["WindowScale"].Instance.Scale = 0.94
+
+                    Items["OptionsWindow"]:Tween({Position = GetTarget(0)})
+                    Items["WindowScale"]:Tween({Scale = 1})
+
+                    Items["OptionsWindow"]:FadeDescendants(true, function()
+                        Debounce = false
+
+                        if Options.IsOpen then
+                            StartFollow()
+                        end
+                    end)
+
+                    Library:RegisterOpenFrame(Options, {
+                        HoverItems = { Items["OptionsWindow"], Items["GearButton"] },
+                        AnchorInstance = GearButton,
+                        PopupInstance = PopupWindow,
+                    })
+                else
+                    StopFollow()
+
+                    Items["OptionsWindow"]:Tween({Position = GetTarget(-SlideOffset)})
+                    Items["WindowScale"]:Tween({Scale = 0.94})
+
+                    Items["OptionsWindow"]:FadeDescendants(false, function()
+                        PopupWindow.Parent = Library.UnusedHolder.Instance
+                        Debounce = false
+                    end)
+
+                    Library:CloseOpenFrameChildren(Options)
+                    Library:UnregisterOpenFrame(Options)
+                end
+
+                local Descendants = PopupWindow:GetDescendants()
+                table.insert(Descendants, PopupWindow)
+
+                for _, Value in Descendants do
+                    if Value.ClassName:find("UI") then
+                        continue
+                    end
+
+                    Value.ZIndex = Options.IsOpen and WindowZIndex or 1
+                end
+
+                UpdateGear()
+            end
+
+            function Options:Open()
+                Options:SetOpen(true)
+            end
+
+            function Options:Close()
+                Options:SetOpen(false)
+            end
+
+            function Options:SetName(Text)
+                Options.Name = tostring(Text)
+                Items["Title"].Instance.Text = Options.Name
+            end
+
+            function Options:SetVisibility(Bool)
+                if not Bool then
+                    Options:SetOpen(false)
+                end
+
+                GearButton.Visible = Bool
+            end
+
+            Items["OptionsWindow"]:VisibleCheck()
+
+            Items["GearButton"]:OnHover(function()
+                Hovering = true
+
+                if not Options.IsOpen then
+                    UpdateGear()
+                end
+            end, function()
+                Hovering = false
+
+                if not Options.IsOpen then
+                    UpdateGear()
+                end
+            end)
+
+            Library:RegisterOpenFrameTrigger(Items["GearButton"])
+
+            Items["GearButton"]:Connect("MouseButton1Down", function()
+                Options:SetOpen(not Options.IsOpen)
+            end)
+
+            return setmetatable(Options, Library)
+        end
+
         Library.Toggle = function(Self, Params)
             Params = Params or { }
 
@@ -5425,101 +5808,6 @@ end
                     SortOrder = Enum.SortOrder.LayoutOrder
                 })                
             
-                -- Optional per-toggle Options gear. This is additive: toggles without
-                -- Toggle:Options(...) keep their original appearance and behaviour.
-                Items["OptionsButton"] = Library:Create("TextButton", {
-                    Name = "\0",
-                    Parent = Items["SubElements"].Instance,
-                    BackgroundTransparency = 1,
-                    BorderSizePixel = 0,
-                    AutoButtonColor = false,
-                    Text = "⚙",
-                    FontFace = Library.Font,
-                    TextSize = Library.FontSize + 2,
-                    TextColor3 = Library.Theme["Inactive Text"],
-                    Size = UDim2.new(0, 0, 1, 0),
-                    Visible = false,
-                    LayoutOrder = 100
-                }):AddToTheme({TextColor3 = "Inactive Text"})
-
-                Items["OptionsWindow"] = Library:Create("Frame", {
-                    Name = "\0",
-                    Parent = Parent.Instance.Parent,
-                    Visible = false,
-                    BorderSizePixel = 0,
-                    BackgroundColor3 = Library.Theme["Background"],
-                    Size = UDim2.fromOffset(230, 250),
-                    Position = UDim2.fromOffset(0, 0),
-                    ZIndex = 100,
-                    ClipsDescendants = true
-                }):AddToTheme({BackgroundColor3 = "Background"})
-
-                Library:Create("UICorner", {
-                    Parent = Items["OptionsWindow"].Instance,
-                    CornerRadius = UDim.new(0, 6)
-                })
-                Library:Create("UIStroke", {
-                    Parent = Items["OptionsWindow"].Instance,
-                    Color = Library.Theme["Outline"],
-                    Thickness = 1
-                }):AddToTheme({Color = "Outline"})
-
-                Items["OptionsHeader"] = Library:Create("TextLabel", {
-                    Parent = Items["OptionsWindow"].Instance,
-                    BackgroundTransparency = 1,
-                    BorderSizePixel = 0,
-                    Position = UDim2.fromOffset(10, 0),
-                    Size = UDim2.new(1, -38, 0, 30),
-                    FontFace = Library.Font,
-                    TextSize = Library.FontSize,
-                    TextXAlignment = Enum.TextXAlignment.Left,
-                    Text = Toggle.Name .. " Options",
-                    TextColor3 = Library.Theme["Text"],
-                    ZIndex = 101
-                }):AddToTheme({TextColor3 = "Text"})
-
-                Items["OptionsClose"] = Library:Create("TextButton", {
-                    Parent = Items["OptionsWindow"].Instance,
-                    BackgroundTransparency = 1,
-                    BorderSizePixel = 0,
-                    AnchorPoint = Vector2.new(1, 0),
-                    Position = UDim2.new(1, -6, 0, 4),
-                    Size = UDim2.fromOffset(22, 22),
-                    FontFace = Library.Font,
-                    TextSize = Library.FontSize,
-                    Text = "×",
-                    TextColor3 = Library.Theme["Inactive Text"],
-                    AutoButtonColor = false,
-                    ZIndex = 102
-                }):AddToTheme({TextColor3 = "Inactive Text"})
-
-                Items["OptionsContent"] = Library:Create("ScrollingFrame", {
-                    Parent = Items["OptionsWindow"].Instance,
-                    BackgroundTransparency = 1,
-                    BorderSizePixel = 0,
-                    Position = UDim2.fromOffset(8, 32),
-                    Size = UDim2.new(1, -16, 1, -40),
-                    CanvasSize = UDim2.new(0, 0, 0, 0),
-                    AutomaticCanvasSize = Enum.AutomaticSize.Y,
-                    ScrollBarThickness = 2,
-                    ScrollBarImageColor3 = Library.Theme["Accent"],
-                    ZIndex = 101
-                }):AddToTheme({ScrollBarImageColor3 = "Accent"})
-
-                Library:Create("UIListLayout", {
-                    Parent = Items["OptionsContent"].Instance,
-                    FillDirection = Enum.FillDirection.Vertical,
-                    SortOrder = Enum.SortOrder.LayoutOrder,
-                    Padding = UDim.new(0, 6)
-                })
-                Library:Create("UIPadding", {
-                    Parent = Items["OptionsContent"].Instance,
-                    PaddingTop = UDim.new(0, 3),
-                    PaddingBottom = UDim.new(0, 4),
-                    PaddingLeft = UDim.new(0, 2),
-                    PaddingRight = UDim.new(0, 2)
-                })
-
                 Toggle.Items = Items
             end
 
@@ -5565,77 +5853,6 @@ end
 
             function Toggle:SetText(Text)
                 Items["Text"].Instance.Text = tostring(Text)
-                if Items["OptionsHeader"] then
-                    Items["OptionsHeader"].Instance.Text = tostring(Text) .. " Options"
-                end
-            end
-
-            -- Toggle:Options(function(OptionsSection) ... end)
-            -- The callback receives a section-like object with the normal controls API.
-            function Toggle:Options(Builder)
-                if type(Builder) ~= "function" then
-                    return Items["OptionsWindow"]
-                end
-
-                if Toggle.OptionsBuilt then
-                    Items["OptionsWindow"].Instance.Visible = not Items["OptionsWindow"].Instance.Visible
-                    return Toggle.OptionsSection
-                end
-
-                local OptionsSection = setmetatable({
-                    Name = Toggle.Name .. " Options",
-                    Window = Toggle.Window,
-                    Page = Toggle.Page,
-                    Section = Toggle.Section,
-                    IsSettings = true,
-                    Items = {
-                        ["Content"] = Items["OptionsContent"]
-                    }
-                }, Library)
-
-                Toggle.OptionsSection = OptionsSection
-                Toggle.OptionsBuilt = true
-
-                local function PositionOptions()
-                    local Popup = Items["OptionsWindow"].Instance
-                    local Anchor = Items["Toggle"].Instance
-                    local ParentFrame = Popup.Parent
-                    local x = Anchor.AbsolutePosition.X - ParentFrame.AbsolutePosition.X
-                        + Anchor.AbsoluteSize.X - Popup.AbsoluteSize.X
-                    local y = Anchor.AbsolutePosition.Y - ParentFrame.AbsolutePosition.Y
-                        + Anchor.AbsoluteSize.Y + 4
-                    x = math.max(0, math.min(x, ParentFrame.AbsoluteSize.X - Popup.AbsoluteSize.X))
-                    if y + Popup.AbsoluteSize.Y > ParentFrame.AbsoluteSize.Y then
-                        y = math.max(0, Anchor.AbsolutePosition.Y - ParentFrame.AbsolutePosition.Y - Popup.AbsoluteSize.Y - 4)
-                    end
-                    Popup.Position = UDim2.fromOffset(x, y)
-                end
-
-                local function CloseOptions()
-                    Items["OptionsWindow"].Instance.Visible = false
-                end
-
-                Items["OptionsButton"]:Connect("MouseButton1Click", function()
-                    local Popup = Items["OptionsWindow"].Instance
-                    if Popup.Visible then
-                        CloseOptions()
-                    else
-                        PositionOptions()
-                        Popup.Visible = true
-                    end
-                end)
-                Items["OptionsClose"]:Connect("MouseButton1Click", CloseOptions)
-
-                Items["OptionsButton"].Instance.Visible = true
-                Items["OptionsButton"].Instance.Size = UDim2.new(0, 16, 1, 0)
-                Items["OptionsButton"]:OnHover(function()
-                    Items["OptionsButton"]:Tween({TextColor3 = Library.Theme["Text"]})
-                end, function()
-                    Items["OptionsButton"]:Tween({TextColor3 = Library.Theme["Inactive Text"]})
-                end)
-
-                Library:SafeCall(Builder, OptionsSection)
-                return OptionsSection
             end
 
             function Toggle:Colorpicker(Data, Data2, Data3)
@@ -5712,6 +5929,25 @@ end
                 end
 
                 return NewKeybind
+            end
+
+            -- OPTIONS - PART 2/3 (inside Library.Toggle)
+            -- Paste right BEFORE:  Items["Toggle"]:Connect("MouseButton1Down", function()
+            function Toggle:Options(Data)
+                Data = Data or { }
+
+                local NewOptions = Library:CreateOptions({
+                    Parent = Items["SubElements"],
+                    Name = Data.Name or Data.name or "Options",
+                    Width = Data.Width or Data.width,
+                    Icon = Data.Icon or Data.icon,
+                    Window = Toggle.Window,
+                    Page = Toggle.Page,
+                })
+
+                Toggle.LinkedOptions = NewOptions
+
+                return NewOptions
             end
 
             Items["Toggle"]:Connect("MouseButton1Down", function()
@@ -7133,6 +7369,25 @@ end
                 })
 
                 return NewKeybind
+            end
+
+            -- OPTIONS - PART 3/3 (inside Library.Label)
+            -- Paste right BEFORE:  Label:SetText(Label.Name)   (the one right above `return setmetatable(Label, Library)`)
+            function Label:Options(Data)
+                Data = Data or { }
+
+                local NewOptions = Library:CreateOptions({
+                    Parent = Items["SubElements"],
+                    Name = Data.Name or Data.name or "Options",
+                    Width = Data.Width or Data.width,
+                    Icon = Data.Icon or Data.icon,
+                    Window = Label.Window,
+                    Page = Label.Page,
+                })
+
+                Label.LinkedOptions = NewOptions
+
+                return NewOptions
             end
 
             Label:SetText(Label.Name)
