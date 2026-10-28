@@ -37,7 +37,7 @@ local GuiInset = GuiService:GetGuiInset().Y
 local Mouse = cloneref(LocalPlayer:GetMouse())
 
 local Library = {
-    BuildVersion = "2026.10.28-mascot-settings-v2-fix1", 
+    BuildVersion = "2026.10.28-v3-init-notifications", 
     Flags = { },
 
     MenuKeybind = tostring(Enum.KeyCode.X),
@@ -334,6 +334,11 @@ local Library = {
     local ThemeOrder = { "Preset", "Sky", "Magma", "Sand", "Navy", "Emerald", "Rose", "Midnight", "Coral", "Mono" }
 
     Library.Themes = Themes
+
+    -- flags that must be applied first when a config is loaded (JSON key order is random)
+    Library.LoadFirst = { "SelectedTheme", "Mascot/Selected", "Mascot/Name" }
+    -- UI-only flags that should never be written into a config
+    Library.ConfigIgnore = { ["Configs"] = true, ["ConfigName"] = true }
     Library.ThemeOrder = ThemeOrder
     Library.Theme = table.clone(Themes["Preset"])
 
@@ -1037,7 +1042,11 @@ local Library = {
         local Config = { }
 
         local Success, Result = Library:SafeCall(function()
-            for Index, Value in Library.Flags do 
+            for Index, Value in Library.Flags do
+                if Library.ConfigIgnore[Index] then
+                    continue
+                end
+ 
                 if type(Value) == "table" and Value.Key then
                     Config[Index] = {Key = tostring(Value.Key), Mode = Value.Mode}
                 elseif type(Value) == "table" and Value.Color then
@@ -1065,25 +1074,48 @@ local Library = {
             return false, "invalid config: " .. tostring(Decoded)
         end
 
-        local Success, Result = Library:SafeCall(function()
-            for Index, Value in Decoded do 
-                local SetFunction = Library.SetFlags[Index]
+        local Order = { }
 
-                if not SetFunction then
-                    continue
-                end
+        for _, Key in Library.LoadFirst do
+            if Decoded[Key] ~= nil then
+                table.insert(Order, Key)
+            end
+        end
 
-                if type(Value) == "table" and Value.Key then 
-                    SetFunction(Value)
-                elseif type(Value) == "table" and Value.Color then
-                    SetFunction(Value.Color, Value.Alpha)
-                else
-                    SetFunction(Value)
+        for Key in Decoded do
+            if not table.find(Library.LoadFirst, Key) then
+                table.insert(Order, Key)
+            end
+        end
+
+        local Failed = { }
+
+        for _, Index in Order do
+            local Value = Decoded[Index]
+            local SetFunction = Library.SetFlags[Index]
+
+            if SetFunction then
+                local Ok, Err = pcall(function()
+                    if type(Value) == "table" and Value.Key then
+                        SetFunction(Value)
+                    elseif type(Value) == "table" and Value.Color then
+                        SetFunction(Value.Color, Value.Alpha)
+                    else
+                        SetFunction(Value)
+                    end
+                end)
+
+                if not Ok then
+                    table.insert(Failed, Index .. ": " .. tostring(Err))
                 end
             end
-        end)
+        end
 
-        return Success, Result
+        if #Failed > 0 then
+            return false, table.concat(Failed, "\n", 1, math.min(#Failed, 3))
+        end
+
+        return true
     end
 
     Library.GetConfigsList = function(Self, Element)
@@ -1436,8 +1468,8 @@ local Library = {
         Parent = Library.NotifHolder.Instance,
         Name = "\0",
         FillDirection = Enum.FillDirection.Vertical,
-        HorizontalAlignment = Enum.HorizontalAlignment.Left,
-        VerticalAlignment = Enum.VerticalAlignment.Top,
+        HorizontalAlignment = Enum.HorizontalAlignment.Right,
+        VerticalAlignment = Enum.VerticalAlignment.Bottom,
         SortOrder = Enum.SortOrder.LayoutOrder,
         Padding = UDim.new(0, 10)
     })
@@ -3129,7 +3161,7 @@ Library.Watermark = function(Self, Params)
                     Parent = Items["NewHolder"].Instance,
                     RichText = true,
                     TextColor3 = Library.Theme["Text"],
-                    Text = 'FPS: <font color="rgb(120, 120, 120)">0</font>',
+                    Text = 'FPS: <font color="rgb(120, 120, 120)">--</font>',
                     Position = UDim2.new(0, 0, 0.5, 0),
                     AnchorPoint = Vector2.new(0, 0.5),
                     BorderSizePixel = 0,
@@ -3158,7 +3190,7 @@ Library.Watermark = function(Self, Params)
                     Parent = Items["NewHolder"].Instance,
                     RichText = true,
                     TextColor3 = Library.Theme["Text"],
-                    Text = 'PING: <font color="rgb(120, 120, 120)">0MS</font>',
+                    Text = 'PING: <font color="rgb(120, 120, 120)">--</font>',
                     Position = UDim2.new(0, 0, 0.5, 0),
                     AnchorPoint = Vector2.new(0, 0.5),
                     BorderSizePixel = 0,
@@ -3221,7 +3253,7 @@ Library.Watermark = function(Self, Params)
             end
 
             local WatermarkVisibilityState = {}
-            local WatermarkScale = Library:Create("UIScale", {Name = "", Parent = Items["Watermark"].Instance, Scale = 1})
+            local WatermarkScale = Library:Create("UIScale", {Name = "\0", Parent = Items["Watermark"].Instance, Scale = 1})
             function Watermark:SetVisibility(Bool)
                 Library:AnimatedVisibility(Items["Watermark"], Bool, WatermarkVisibilityState, WatermarkScale)
             end
@@ -3267,7 +3299,7 @@ Library.Watermark = function(Self, Params)
                     BackgroundColor3 = Library.Theme["Tab"]
                 }):AddToTheme({BackgroundColor3 = 'Tab'})
                 
-                Library:Create("UICorner", {
+                Items["TopCorner"] = Library:Create("UICorner", {
                     Name = "\0",
                     Parent = Items["Top"].Instance,
                     BottomRightRadius = UDim.new(0, 0),
@@ -3280,7 +3312,11 @@ Library.Watermark = function(Self, Params)
                         AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 10, 0.5, 0),
                         Size = UDim2.new(0, 16, 0, 16), BorderSizePixel = 0, ImageColor3 = Library.Theme["Accent"]
                     }):AddToTheme({ImageColor3 = "Accent"})
-                    Library:ApplyIcon(Items["Icon"].Instance, KeybindList.Icon)
+                    if not Library:ApplyIcon(Items["Icon"].Instance, KeybindList.Icon) then
+                        Items["Icon"].Instance:Destroy()
+                        Items["Icon"] = nil
+                        KeybindList.Icon = ""
+                    end
                 end
 
                 Items["Title"] = Library:Create("TextLabel", {
@@ -3308,6 +3344,7 @@ Library.Watermark = function(Self, Params)
                 Items["Content"] = Library:Create("Frame", {
                     Name = "\0",
                     Parent = Items["KeybindList"].Instance,
+                    Visible = false,
                     Size = UDim2.new(1, 0, 0, 0),
                     Position = UDim2.new(0, 0, 0, 35),
                     BorderSizePixel = 0,
@@ -3319,7 +3356,7 @@ Library.Watermark = function(Self, Params)
                     Name = "\0",
                     Parent = Items["Content"].Instance,
                     PaddingTop = UDim.new(0, 10),
-                    PaddingBottom = UDim.new(0, 10),
+                    PaddingBottom = UDim.new(0, 4),
                     PaddingRight = UDim.new(0, 10),
                     PaddingLeft = UDim.new(0, 10)
                 })
@@ -3356,6 +3393,22 @@ Library.Watermark = function(Self, Params)
             local RowGap = 6
             local RowSlot = RowHeight + RowGap
             local SlideOffset = 14
+
+            function KeybindList:Refresh()
+                local Count = 0
+                for _, Row in KeybindList.Keys do
+                    if Row.Bound then
+                        Count += 1
+                    end
+                end
+
+                local HasRows = Count > 0
+                Items["Content"].Instance.Visible = HasRows
+
+                local Radius = UDim.new(0, HasRows and 0 or 8)
+                Items["TopCorner"].Instance.BottomLeftRadius = Radius
+                Items["TopCorner"].Instance.BottomRightRadius = Radius
+            end
 
             function KeybindList:Add(Name, Key)
                 local RowItems = { } do
@@ -3426,6 +3479,7 @@ Library.Watermark = function(Self, Params)
                 function NewKey:SetBound(Bool)
                     NewKey.Bound = Bool and true or false
                     NewKey.AnimationToken += 1
+                    KeybindList:Refresh()
                     if not NewKey.Bound then
                         RowItems["NewKey"].Instance.Visible = false
                         RowItems["NewKey"].Instance.Size = UDim2.new(1, 0, 0, 0)
@@ -3476,14 +3530,16 @@ Library.Watermark = function(Self, Params)
                     end
 
                     RowItems["NewKey"].Instance:Destroy()
+                    KeybindList:Refresh()
                 end
 
                 table.insert(KeybindList.Keys, NewKey)
+                KeybindList:Refresh()
                 return NewKey
             end
 
             local KeybindListVisibilityState = {}
-            local KeybindListScale = Library:Create("UIScale", {Name = "", Parent = Items["KeybindList"].Instance, Scale = 1})
+            local KeybindListScale = Library:Create("UIScale", {Name = "\0", Parent = Items["KeybindList"].Instance, Scale = 1})
             function KeybindList:SetVisibility(Bool)
                 Library:AnimatedVisibility(Items["KeybindList"], Bool, KeybindListVisibilityState, KeybindListScale)
             end
@@ -3497,6 +3553,7 @@ Library.Watermark = function(Self, Params)
                 Items["KeybindList"]:ConvertAnchor()
             end
 
+            KeybindList:Refresh()
             KeybindList:Center()
 
             Library.KeyList = KeybindList
@@ -3505,182 +3562,309 @@ Library.Watermark = function(Self, Params)
             return setmetatable(KeybindList, Library)
         end
 
+        Library.NotificationTypes = {
+            Success = Color3.fromRGB(95, 205, 135),
+            Warning = Color3.fromRGB(235, 185, 85),
+            Error   = Color3.fromRGB(230, 95, 95),
+        }
+
+        Library.NotificationCounter = 0
+        Library.NotificationLimit = 5
+
+        -- Library:Notification({Name = "Saved", Description = "Config created.", Type = "Success", Duration = 3})
+        --   Type: "Success" | "Warning" | "Error" | nil (theme accent). Color overrides Type.
+        -- Hover pauses the timer, click dismisses, an identical message restarts instead of stacking.
         Library.Notification = function(Self, Params)
             Params = Params or { }
 
-            local Name = Params.Name or Params.name or "Notification"
-            local Description = Params.Description or Params.description or ""
-            local Duration = Params.Duration or Params.duration or 5
-            local Color = Params.Color or Params.color or Library.Theme.Accent
+            local Name = tostring(Params.Name or Params.name or Params.Title or Params.title or "Notification")
+            local Description = tostring(Params.Description or Params.description or "")
+            local Duration = math.max(tonumber(Params.Duration or Params.duration) or 4, 0.5)
+            local Type = Params.Type or Params.type
+            local Color = Params.Color or Params.color or (Type and Library.NotificationTypes[Type]) or Library.Theme.Accent
+            local Key = Name .. "\n" .. Description
 
+            for _, Existing in Library.Notifications do
+                if Existing.Key == Key and not Existing.Removing then
+                    Existing:Restart()
+                    return Existing
+                end
+            end
+
+            local Width = 290
             local Notification = {
+                Key = Key,
                 Removing = false,
+                Closing = false,
+                Paused = false,
+                Elapsed = 0,
+                Duration = Duration,
                 Items = { }
             }
+            local Items = Notification.Items
 
-            local Items = { } do 
-                Items["Notification"] = Library:Create("Frame", {
-                    Name = "\0",
-                    Parent = Library.NotifHolder.Instance,
-                    BorderSizePixel = 0,
-                    AutomaticSize = Enum.AutomaticSize.XY,
-                    ClipsDescendants = true,
-                    BackgroundColor3 = Library.Theme["Inline"],
-                    ZIndex = 100
-                }):AddToTheme({BackgroundColor3 = 'Inline'})
-                
-                Items["Stroke"] = Library:Create("UIStroke", {
-                    Name = "\0",
-                    Parent = Items["Notification"].Instance,
-                    Color = Library.Theme["Outline"],
-                    ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-                }):AddToTheme({Color = 'Outline'})
-                
-                Library:Create("UICorner", {
-                    Name = "\0",
-                    Parent = Items["Notification"].Instance
-                })
-                
-                Library:Create("UIPadding", {
-                    Name = "\0",
-                    Parent = Items["Notification"].Instance,
-                    PaddingTop = UDim.new(0, 10),
-                    PaddingBottom = UDim.new(0, 25),
-                    PaddingRight = UDim.new(0, 10),
-                    PaddingLeft = UDim.new(0, 10)
-                })
-                
-                Items["Text"] = Library:Create("TextLabel", {
-                    Name = "\0",
-                    FontFace = Library.Font,
-                    TextSize = Library.FontSize,
-                    Parent = Items["Notification"].Instance,
-                    TextColor3 = Library.Theme["Text"],
-                    Text = Name,
-                    BackgroundTransparency = 1,
-                    TextXAlignment = Enum.TextXAlignment.Left,
-                    BorderSizePixel = 0,
-                    AutomaticSize = Enum.AutomaticSize.XY,
-                    ZIndex = 101
-                }):AddToTheme({TextColor3 = 'Text'})
-                
-                Items["Description"] = Library:Create("TextLabel", {
-                    Name = "\0",
-                    FontFace = Library.Font,
-                    TextSize = Library.FontSize,
-                    Parent = Items["Notification"].Instance,
-                    TextColor3 = Library.Theme["Inactive Text"],
-                    Text = Description,
-                    Position = UDim2.new(0, 0, 0, 20),
-                    BackgroundTransparency = 1,
-                    TextXAlignment = Enum.TextXAlignment.Left,
-                    BorderSizePixel = 0,
-                    AutomaticSize = Enum.AutomaticSize.XY,
-                    ZIndex = 101
-                }):AddToTheme({TextColor3 = 'Inactive Text'})
-                
-                Items["Liner"] = Library:Create("Frame", {
-                    Name = "\0",
-                    Parent = Items["Notification"].Instance,
-                    AnchorPoint = Vector2.new(0, 1),
-                    Position = UDim2.new(0, 0, 1, 15),
-                    Size = UDim2.new(1, 0, 0, 5),
-                    BorderSizePixel = 0,
-                    BackgroundColor3 = Color,
-                    ZIndex = 101
-                })
-                
-                Library:Create("UICorner", {
-                    Name = "\0",
-                    Parent = Items["Liner"].Instance,
-                    TopLeftRadius = UDim.new(1, 0),
-                    TopRightRadius = UDim.new(1, 0),
-                    BottomRightRadius = UDim.new(1, 0),
-                    BottomLeftRadius = UDim.new(1, 0)
-                })
-                
-                Items["Duration"] = Library:Create("TextLabel", {
-                    Name = "\0",
-                    FontFace = Library.Font,
-                    TextSize = Library.FontSize,
-                    Parent = Items["Notification"].Instance,
-                    TextColor3 = Library.Theme["Inactive Text"],
-                    Text = string.format("%.1fs", Duration),
-                    AnchorPoint = Vector2.new(1, 0),
-                    Position = UDim2.new(1, 0, 0, 0),
-                    BackgroundTransparency = 1,
-                    TextXAlignment = Enum.TextXAlignment.Right,
-                    BorderSizePixel = 0,
-                    AutomaticSize = Enum.AutomaticSize.XY,
-                    ZIndex = 101
-                }):AddToTheme({TextColor3 = 'Inactive Text'})                
+            Library.NotificationCounter += 1
+
+            Items["Holder"] = Library:Create("Frame", {
+                Name = "\0",
+                Parent = Library.NotifHolder.Instance,
+                BackgroundTransparency = 1,
+                BorderSizePixel = 0,
+                Size = UDim2.new(0, Width, 0, 0),
+                AutomaticSize = Enum.AutomaticSize.Y,
+                LayoutOrder = Library.NotificationCounter
+            })
+
+            Items["Card"] = Library:Create("Frame", {
+                Name = "\0",
+                Parent = Items["Holder"].Instance,
+                BorderSizePixel = 0,
+                ClipsDescendants = true,
+                Position = UDim2.new(0, 36, 0, 0),
+                Size = UDim2.new(1, 0, 0, 0),
+                AutomaticSize = Enum.AutomaticSize.Y,
+                BackgroundTransparency = 1,
+                BackgroundColor3 = Library.Theme["Inline"]
+            })
+
+            Library:Create("UICorner", {
+                Name = "\0",
+                Parent = Items["Card"].Instance,
+                CornerRadius = UDim.new(0, 6)
+            })
+
+            Items["Stroke"] = Library:Create("UIStroke", {
+                Name = "\0",
+                Parent = Items["Card"].Instance,
+                Color = Library.Theme["Outline"],
+                Transparency = 1,
+                ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            })
+
+            Items["Accent"] = Library:Create("Frame", {
+                Name = "\0",
+                Parent = Items["Card"].Instance,
+                BorderSizePixel = 0,
+                Size = UDim2.new(0, 3, 1, 0),
+                BackgroundTransparency = 1,
+                BackgroundColor3 = Color
+            })
+
+            Items["Body"] = Library:Create("Frame", {
+                Name = "\0",
+                Parent = Items["Card"].Instance,
+                BackgroundTransparency = 1,
+                BorderSizePixel = 0,
+                Position = UDim2.new(0, 3, 0, 0),
+                Size = UDim2.new(1, -3, 0, 0),
+                AutomaticSize = Enum.AutomaticSize.Y
+            })
+
+            Library:Create("UIPadding", {
+                Name = "\0",
+                Parent = Items["Body"].Instance,
+                PaddingTop = UDim.new(0, 10),
+                PaddingBottom = UDim.new(0, 13),
+                PaddingLeft = UDim.new(0, 12),
+                PaddingRight = UDim.new(0, 12)
+            })
+
+            Library:Create("UIListLayout", {
+                Name = "\0",
+                Parent = Items["Body"].Instance,
+                Padding = UDim.new(0, 3),
+                SortOrder = Enum.SortOrder.LayoutOrder
+            })
+
+            Items["Title"] = Library:Create("TextLabel", {
+                Name = "\0",
+                FontFace = Library.Font,
+                TextSize = Library.FontSize,
+                Parent = Items["Body"].Instance,
+                Text = Name,
+                TextColor3 = Library.Theme["Text"],
+                TextTransparency = 1,
+                TextWrapped = true,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                BackgroundTransparency = 1,
+                BorderSizePixel = 0,
+                Size = UDim2.new(1, 0, 0, 0),
+                AutomaticSize = Enum.AutomaticSize.Y,
+                LayoutOrder = 1
+            })
+
+            Items["Description"] = Library:Create("TextLabel", {
+                Name = "\0",
+                FontFace = Library.Font,
+                TextSize = Library.FontSize - 1,
+                Parent = Items["Body"].Instance,
+                Text = Description,
+                Visible = Description ~= "",
+                TextColor3 = Library.Theme["Inactive Text"],
+                TextTransparency = 1,
+                TextWrapped = true,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                BackgroundTransparency = 1,
+                BorderSizePixel = 0,
+                Size = UDim2.new(1, 0, 0, 0),
+                AutomaticSize = Enum.AutomaticSize.Y,
+                LayoutOrder = 2
+            })
+
+            Items["Progress"] = Library:Create("Frame", {
+                Name = "\0",
+                Parent = Items["Card"].Instance,
+                AnchorPoint = Vector2.new(0, 1),
+                Position = UDim2.new(0, 0, 1, 0),
+                Size = UDim2.new(1, 0, 0, 2),
+                BorderSizePixel = 0,
+                BackgroundTransparency = 1,
+                BackgroundColor3 = Color,
+                ZIndex = 3
+            })
+
+            Items["Hit"] = Library:Create("TextButton", {
+                Name = "\0",
+                Parent = Items["Card"].Instance,
+                BackgroundTransparency = 1,
+                BorderSizePixel = 0,
+                Size = UDim2.new(1, 0, 1, 0),
+                Text = "",
+                ZIndex = 4
+            })
+
+            -- { instance, property, visible value }
+            local Fades = {
+                { Items["Card"].Instance, "BackgroundTransparency", 0 },
+                { Items["Stroke"].Instance, "Transparency", 0 },
+                { Items["Accent"].Instance, "BackgroundTransparency", 0 },
+                { Items["Title"].Instance, "TextTransparency", 0 },
+                { Items["Description"].Instance, "TextTransparency", 0 },
+                { Items["Progress"].Instance, "BackgroundTransparency", 0.55 },
+            }
+
+            local InInfo = TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+            local OutInfo = TweenInfo.new(0.28, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
+
+            local Alive = function()
+                return Library ~= nil and Items["Holder"].Instance.Parent ~= nil
             end
 
-            Notification.Items = Items
-            table.insert(Library.Notifications, 1, Notification)
-
-            for Index, Notif in Library.Notifications do
-                Notif.Items["Notification"].Instance.LayoutOrder = Index
+            local Play = function(Info, Hidden)
+                for _, Entry in Fades do
+                    TweenService:Create(Entry[1], Info, {[Entry[2]] = Hidden and 1 or Entry[3]}):Play()
+                end
             end
 
-            task.wait()
+            local ProgressTween
 
-            local FullSize = Items["Notification"].Instance.AbsoluteSize
-            local TweenInfoIn = TweenInfo.new(Library.Animation.Time, Enum.EasingStyle[Library.Animation.Style], Enum.EasingDirection[Library.Animation.Direction])
+            function Notification:Restart()
+                Notification.Elapsed = 0
 
-            Items["Notification"].Instance.AutomaticSize = Enum.AutomaticSize.None
-            Items["Notification"].Instance.Size = UDim2.new(0, 0, 0, 0)
-            Items["Notification"].Instance.BackgroundTransparency = 1
-            Items["Stroke"].Instance.Transparency = 1
-            Items["Text"].Instance.TextTransparency = 1
-            Items["Description"].Instance.TextTransparency = 1
-            Items["Duration"].Instance.TextTransparency = 1
-            Items["Liner"].Instance.BackgroundTransparency = 1
-            Items["Liner"].Instance.Size = UDim2.new(1, 0, 0, 5)
+                if ProgressTween then
+                    ProgressTween:Cancel()
+                end
 
-            local Fade = function(Transparency)
-                Items["Notification"]:Tween({BackgroundTransparency = Transparency}, TweenInfoIn)
-                Items["Stroke"]:Tween({Transparency = Transparency}, TweenInfoIn)
-                Items["Text"]:Tween({TextTransparency = Transparency}, TweenInfoIn)
-                Items["Description"]:Tween({TextTransparency = Transparency}, TweenInfoIn)
-                Items["Duration"]:Tween({TextTransparency = Transparency}, TweenInfoIn)
-                Items["Liner"]:Tween({BackgroundTransparency = Transparency}, TweenInfoIn)
+                local Bar = Items["Progress"].Instance
+                Bar.Size = UDim2.new(1, 0, 0, 2)
+
+                ProgressTween = TweenService:Create(Bar, TweenInfo.new(Duration, Enum.EasingStyle.Linear), {
+                    Size = UDim2.new(0, 0, 0, 2)
+                })
+                ProgressTween:Play()
+
+                if Notification.Paused then
+                    ProgressTween:Pause()
+                end
             end
 
-            Library:Thread(function()
-                Fade(0)
-                Items["Notification"]:Tween({Size = UDim2.new(0, FullSize.X, 0, FullSize.Y)}, TweenInfoIn)
+            function Notification:Dismiss()
+                Notification.Closing = true
+            end
 
-                Items["Liner"]:Tween({Size = UDim2.new(0, 0, 0, 5)}, TweenInfo.new(Duration, Enum.EasingStyle.Linear, Enum.EasingDirection.Out))
+            -- plain connections on purpose: they die with the instance, no need to track them
+            Items["Hit"].Instance.MouseEnter:Connect(function()
+                Notification.Paused = true
+                if ProgressTween then ProgressTween:Pause() end
+            end)
 
-                local Start = tick()
-                while tick() - Start < Duration and not Notification.Removing do
-                    local Remaining = math.max(0, Duration - (tick() - Start))
-                    Items["Duration"].Instance.Text = string.format("%.1fs", Remaining)
+            Items["Hit"].Instance.MouseLeave:Connect(function()
+                Notification.Paused = false
+                if ProgressTween then ProgressTween:Play() end
+            end)
+
+            Items["Hit"].Instance.MouseButton1Click:Connect(function()
+                Notification.Closing = true
+            end)
+
+            table.insert(Library.Notifications, Notification)
+
+            -- keep the stack short: oldest ones leave first
+            local Active = { }
+            for _, Value in Library.Notifications do
+                if not Value.Removing and not Value.Closing then
+                    table.insert(Active, Value)
+                end
+            end
+            for Index = 1, #Active - Library.NotificationLimit do
+                Active[Index]:Dismiss()
+            end
+
+            task.spawn(function()
+                if not Alive() then return end
+
+                Play(InInfo, false)
+                TweenService:Create(Items["Card"].Instance, InInfo, {Position = UDim2.new(0, 0, 0, 0)}):Play()
+                Notification:Restart()
+
+                local Last = os.clock()
+
+                while Alive() and not Notification.Closing and Notification.Elapsed < Duration do
                     task.wait(0.05)
+
+                    local Now = os.clock()
+                    if not Notification.Paused then
+                        Notification.Elapsed += Now - Last
+                    end
+                    Last = Now
                 end
 
-                if Notification.Removing then
-                    return
-                end
+                if not Alive() then return end
 
                 Notification.Removing = true
 
-                for Index, Value in Library.Notifications do
-                    if Value == Notification then
-                        table.remove(Library.Notifications, Index)
-                        break
-                    end
+                local Index = table.find(Library.Notifications, Notification)
+                if Index then
+                    table.remove(Library.Notifications, Index)
                 end
 
-                Fade(1)
-                Items["Notification"]:Tween({Size = UDim2.new(0, 0, 0, 0)}, TweenInfoIn)
+                Play(OutInfo, true)
+                TweenService:Create(Items["Card"].Instance, OutInfo, {Position = UDim2.new(0, 36, 0, 0)}):Play()
+                task.wait(OutInfo.Time)
 
-                task.wait(Library.Animation.Time)
-                Items["Notification"].Instance:Destroy()
+                if not Alive() then return end
+
+                local Holder = Items["Holder"].Instance
+                Holder.AutomaticSize = Enum.AutomaticSize.None
+                Holder.Size = UDim2.new(0, Width, 0, Holder.AbsoluteSize.Y)
+                Holder.ClipsDescendants = true
+
+                local Collapse = TweenService:Create(Holder, TweenInfo.new(0.22, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+                    Size = UDim2.new(0, Width, 0, 0)
+                })
+                Collapse:Play()
+                Collapse.Completed:Wait()
+
+                if Holder.Parent then
+                    Holder:Destroy()
+                end
             end)
 
             return Notification
+        end
+
+        Library.Notify = function(Self, Name, Description, Type, Duration)
+            return Library:Notification({Name = Name, Description = Description, Type = Type, Duration = Duration})
         end
 
         Library.ESPPreview = function(Self, Params)
@@ -4256,6 +4440,7 @@ Library.Watermark = function(Self, Params)
                 Callback = Params.Callback or Params.callback or function() end,
                 Mascots = Mascots,
                 CurrentMascot = DefaultMascot,
+                DefaultMascot = DefaultMascot,
 
                 Window = Self,
                 Visible = Params.Visible ~= false,
@@ -4273,6 +4458,9 @@ Library.Watermark = function(Self, Params)
             if typeof(Mascot.Offset) ~= "Vector2" then
                 Mascot.Offset = Vector2.new(-222, -333)
             end
+
+            Mascot.InitialSize = Mascot.Size.X
+            Mascot.InitialOffset = Mascot.Offset
 
             local ShowInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
             local HideInfo = TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
@@ -4569,20 +4757,63 @@ Library.Watermark = function(Self, Params)
                 end)
             end
 
-            function Mascot:SetMascot(Name)
+            local ToNumber = function(Value, Fallback)
+                if typeof(Value) == "Vector2" then
+                    return Value.X
+                end
+                return tonumber(Value) or Fallback
+            end
+
+            -- KeepTransform = true keeps the current size / rotation / position (only swaps image + sound)
+            function Mascot:SetMascot(Name, KeepTransform)
                 local Data = Mascot.Mascots and Mascot.Mascots[Name]
                 if type(Data) == "string" then Data = {Url = Data} end
                 if type(Data) ~= "table" or not Data.Url then return false end
 
                 Mascot.CurrentMascot = Name
-                Mascot:SetSize(Data.Size or Mascot.Size.X)
-                Mascot:SetRotation(Data.Rotation or Data.rotation or Mascot.Rotation or 0)
-                local Offset = Data.Offset or Mascot.Offset
-                Mascot:SetPosition(Offset.X, Offset.Y, Data.ZIndex or Mascot.ZIndex)
+
+                if not KeepTransform then
+                    Mascot:SetSize(ToNumber(Data.Size, Mascot.Size.X))
+                    Mascot:SetRotation(Data.Rotation or Data.rotation or Mascot.Rotation or 0)
+                    local Offset = typeof(Data.Offset) == "Vector2" and Data.Offset or Mascot.Offset
+                    Mascot:SetPosition(Offset.X, Offset.Y, Data.ZIndex or Mascot.ZIndex)
+                end
+
                 Mascot:SetClickSound(Data.ClickSound or Params.ClickSound or "102774986031312")
                 Mascot:SetClickSoundVolume(Data.ClickSoundVolume or Data.clickSoundVolume or Mascot.ClickSoundVolume or Library.MascotClickVolume or 0.8)
                 Mascot:SetUrl(Data.Url)
                 return true
+            end
+
+            -- back to the values the registry / constructor was created with
+            function Mascot:ResetToDefault()
+                local Name = Mascot.DefaultMascot or Mascot.CurrentMascot
+                local Data = Mascot.Mascots and Mascot.Mascots[Name]
+                if type(Data) == "string" then Data = {Url = Data} end
+                if type(Data) ~= "table" or not Data.Url then return false end
+
+                local Offset = typeof(Data.Offset) == "Vector2" and Data.Offset or Mascot.InitialOffset
+
+                Mascot:SetSize(ToNumber(Data.Size, Mascot.InitialSize))
+                Mascot:SetRotation(Data.Rotation or Data.rotation or 0)
+                Mascot:SetPosition(Offset.X, Offset.Y, Data.ZIndex or 3)
+
+                local Volume = Data.ClickSoundVolume or Data.clickSoundVolume or 0.8
+                Mascot:SetClickSoundVolume(Volume)
+                Library:SetMascotClickVolume(Volume)
+
+                return Mascot:SetMascot(Name, true)
+            end
+
+            function Mascot:GetState()
+                return {
+                    Name = Mascot.CurrentMascot,
+                    X = Mascot.Offset.X,
+                    Y = Mascot.Offset.Y,
+                    Rotation = Mascot.Rotation,
+                    Size = Mascot.Size.X,
+                    ClickSoundVolume = Mascot.ClickSoundVolume or Library.MascotClickVolume or 0.8
+                }
             end
 
             if Mascot.CurrentMascot and Mascot.Mascots[Mascot.CurrentMascot] then
@@ -5865,7 +6096,7 @@ end
             local function CommitSliderText()
                 local Text = tostring(Items["Value"].Instance.Text or "")
                 if Slider.Suffix ~= "" then
-                    Text = Text:gsub("%s*" .. Slider.Suffix .. "%s*$", "")
+                    Text = Text:gsub("%s*" .. Slider.Suffix:gsub("%p", "%%%0") .. "%s*$", "")
                 end
                 local Number = tonumber(Text)
                 if Number == nil or Number ~= Number or Number == math.huge or Number == -math.huge then
@@ -7530,158 +7761,219 @@ end
             return setmetatable(List, Library)
         end
 
+        -- Window:Init() builds the "UI Settings" page: profiles, autoload, theming,
+        -- mascot (picker / position / rotation / size / sounds / reset) and menu options.
+        -- Call it LAST, after every page, so autoload can restore all flags.
         Library.Init = function(Self)
-            local SettingsPage = Self:Page({Name = "UI Settings", Icon = "settings"})
+            local Window = (Self ~= Library and Self) or Library.ActiveWindow
 
-            local ConfigName
-            local ConfigSelected
-            local ConfigsFolder = Library.Directory .. Library.Folders.Configs .. "/"
-
-            local Notify = function(Name, Description, Color)
-                Library:Notification({
-                    Name = Name,
-                    Description = Description or "",
-                    Duration = 3,
-                    Color = Color or Library.Theme.Accent
-                })
+            if not Window then
+                warn("[Library] Init: create a window first, then call Window:Init()")
+                return
             end
 
-            local SuccessColor = Color3.fromRGB(52, 255, 126)
-            local ErrorColor = Color3.fromRGB(255, 80, 80)
+            if Window.SettingsPage then
+                return Window.SettingsPage
+            end
 
-            do -- Profiles
+            local SettingsPage = Window:Page({Name = "UI Settings", Icon = "settings"})
+            Window.SettingsPage = SettingsPage
+
+            local Notify = function(Type, Name, Description)
+                Library:Notification({Name = Name, Description = Description or "", Type = Type, Duration = 3})
+            end
+
+            local SetFlag = function(Flag, Value)
+                local Setter = Library.SetFlags[Flag]
+                if Setter then
+                    Setter(Value)
+                end
+            end
+
+            local ConfigsFolder = Library.Directory .. Library.Folders.Configs .. "/"
+            local AutoloadFile = Library.Directory .. "/autoload.json"
+            local AutoloadNameFile = Library.Directory .. "/autoload.txt"
+
+            local ConfigPath = function(Name)
+                return ConfigsFolder .. Name .. ".json"
+            end
+
+            local CleanName = function(Name)
+                Name = tostring(Name or ""):gsub('[\\/:*?"<>|]', ""):gsub("^%s+", ""):gsub("%s+$", "")
+                return Name
+            end
+
+            local ConfigSelected
+            local ConfigName
+
+            do -- Profiles + Autoload
                 local ConfigsSection = SettingsPage:Section({Name = "Profiles", Icon = "folder", Side = 1})
 
                 local ConfigsList = ConfigsSection:ListBox({
                     Flag = "Configs",
                     Items = { },
                     Multi = false,
-                    Height = 200,
+                    Height = 180,
                     Callback = function(Value)
-                        ConfigSelected = Value
+                        ConfigSelected = type(Value) == "string" and Value or nil
                     end
                 })
+
+                local AutoloadSection = SettingsPage:Section({Name = "Autoload", Icon = "play-circle", Side = 1})
+                local AutoloadLabel = AutoloadSection:Label({Name = "Autoload: none"})
+
+                local ReadAutoloadName = function()
+                    local Ok, Name = pcall(readfile, AutoloadNameFile)
+                    Name = Ok and CleanName(Name) or ""
+                    return Name ~= "" and Name or nil
+                end
+
+                local RefreshAutoloadLabel = function()
+                    AutoloadLabel:SetText("Autoload: " .. (ReadAutoloadName() or "none"))
+                end
+
+                -- returns the selected config name, or nil after telling the user why
+                local Selected = function()
+                    if not ConfigSelected or ConfigSelected == "" then
+                        Notify("Error", "No config selected", "Pick one from the list first.")
+                        return nil
+                    end
+
+                    if not isfile(ConfigPath(ConfigSelected)) then
+                        Notify("Error", "Config not found", '"' .. ConfigSelected .. '" is gone.')
+                        Library:GetConfigsList(ConfigsList)
+                        return nil
+                    end
+
+                    return ConfigSelected
+                end
 
                 ConfigsSection:Textbox({
                     Name = "Config name",
                     Flag = "ConfigName",
                     Placeholder = "Config name",
                     Callback = function(Value)
-                        ConfigName = Value
+                        ConfigName = CleanName(Value)
                     end
                 })
 
                 ConfigsSection:Button({
                     Name = "Create",
                     Callback = function()
-                        if not ConfigName or ConfigName == "" then
-                            Notify("Error", "Config name can't be empty.", ErrorColor)
+                        local Name = CleanName(ConfigName or Library.Flags["ConfigName"])
+
+                        if Name == "" then
+                            Notify("Error", "Name is empty", "Type a config name first.")
                             return
                         end
 
-                        if isfile(ConfigsFolder .. ConfigName .. ".json") then
-                            Notify("Error", 'Config "' .. ConfigName .. '" already exists.', ErrorColor)
+                        if isfile(ConfigPath(Name)) then
+                            Notify("Error", "Already exists", '"' .. Name .. '" is taken, use Overwrite.')
                             return
                         end
 
-                        writefile(ConfigsFolder .. ConfigName .. ".json", Library:GetConfig())
+                        local Data = Library:GetConfig()
+                        if not Data then
+                            Notify("Error", "Couldn't save", "Current settings could not be read.")
+                            return
+                        end
+
+                        writefile(ConfigPath(Name), Data)
                         Library:GetConfigsList(ConfigsList)
-                        Notify("Success", 'Created config "' .. ConfigName .. '".', SuccessColor)
+                        ConfigsList:Set(Name)
+                        Notify("Success", "Config created", Name)
                     end
                 })
 
                 ConfigsSection:Button({
                     Name = "Load",
                     Callback = function()
-                        if not ConfigSelected or ConfigSelected == "" then
-                            Notify("Error", "No config selected.", ErrorColor)
+                        local Name = Selected()
+                        if not Name then return end
+
+                        local Ok, Content = pcall(readfile, ConfigPath(Name))
+                        if not Ok then
+                            Notify("Error", "Couldn't read file", tostring(Content))
                             return
                         end
 
-                        if not isfile(ConfigsFolder .. ConfigSelected .. ".json") then
-                            Notify("Error", 'Config "' .. ConfigSelected .. '" does not exist.', ErrorColor)
-                            return
-                        end
-
-                        local Success, Error = Library:LoadConfig(readfile(ConfigsFolder .. ConfigSelected .. ".json"))
-
+                        local Success, Err = Library:LoadConfig(Content)
                         if Success then
-                            Notify("Success", 'Loaded config "' .. ConfigSelected .. '".', SuccessColor)
+                            Notify("Success", "Config loaded", Name)
                         else
-                            Notify("Error", "Failed to load config:\n" .. tostring(Error), ErrorColor)
+                            Notify("Warning", "Loaded with errors", tostring(Err))
                         end
-                    end
-                })
-
-                ConfigsSection:Button({
-                    Name = "Delete",
-                    Callback = function()
-                        if not ConfigSelected or ConfigSelected == "" then
-                            Notify("Error", "No config selected.", ErrorColor)
-                            return
-                        end
-
-                        if not isfile(ConfigsFolder .. ConfigSelected .. ".json") then
-                            Notify("Error", 'Config "' .. ConfigSelected .. '" does not exist.', ErrorColor)
-                            return
-                        end
-
-                        delfile(ConfigsFolder .. ConfigSelected .. ".json")
-                        ConfigSelected = nil
-                        Library:GetConfigsList(ConfigsList)
-                        Notify("Success", "Deleted config.", SuccessColor)
                     end
                 })
 
                 ConfigsSection:Button({
                     Name = "Overwrite",
                     Callback = function()
-                        if not ConfigSelected or ConfigSelected == "" then
-                            Notify("Error", "No config selected.", ErrorColor)
+                        local Name = Selected()
+                        if not Name then return end
+
+                        local Data = Library:GetConfig()
+                        if not Data then
+                            Notify("Error", "Couldn't save", "Current settings could not be read.")
                             return
                         end
 
-                        if not isfile(ConfigsFolder .. ConfigSelected .. ".json") then
-                            Notify("Error", 'Config "' .. ConfigSelected .. '" does not exist.', ErrorColor)
-                            return
-                        end
-
-                        writefile(ConfigsFolder .. ConfigSelected .. ".json", Library:GetConfig())
-                        Notify("Success", 'Overwrote config "' .. ConfigSelected .. '".', SuccessColor)
+                        writefile(ConfigPath(Name), Data)
+                        Notify("Success", "Config saved", Name)
                     end
                 })
 
-                Library:GetConfigsList(ConfigsList)
-            end
+                ConfigsSection:Button({
+                    Name = "Delete",
+                    Callback = function()
+                        local Name = Selected()
+                        if not Name then return end
 
-            do -- Autoload
-                local AutoloadSection = SettingsPage:Section({Name = "Autoload", Icon = "play-circle", Side = 1})
+                        delfile(ConfigPath(Name))
+
+                        if ReadAutoloadName() == Name then
+                            writefile(AutoloadFile, "")
+                            writefile(AutoloadNameFile, "")
+                            RefreshAutoloadLabel()
+                        end
+
+                        ConfigSelected = nil
+                        Library:GetConfigsList(ConfigsList)
+                        Notify("Success", "Config deleted", Name)
+                    end
+                })
 
                 AutoloadSection:Button({
                     Name = "Set selected as autoload",
                     Callback = function()
-                        if not ConfigSelected or ConfigSelected == "" then
-                            Notify("Error", "No config selected.", ErrorColor)
+                        local Name = Selected()
+                        if not Name then return end
+
+                        local Ok, Content = pcall(readfile, ConfigPath(Name))
+                        if not Ok then
+                            Notify("Error", "Couldn't read file", tostring(Content))
                             return
                         end
 
-                        if not isfile(ConfigsFolder .. ConfigSelected .. ".json") then
-                            Notify("Error", 'Config "' .. ConfigSelected .. '" does not exist.', ErrorColor)
-                            return
-                        end
-
-                        writefile(Library.Directory .. "/autoload.json", readfile(ConfigsFolder .. ConfigSelected .. ".json"))
-                        Notify("Success", 'Set "' .. ConfigSelected .. '" as autoload.', SuccessColor)
+                        writefile(AutoloadFile, Content)
+                        writefile(AutoloadNameFile, Name)
+                        RefreshAutoloadLabel()
+                        Notify("Success", "Autoload set", Name)
                     end
                 })
 
                 AutoloadSection:Button({
                     Name = "Clear autoload",
                     Callback = function()
-                        writefile(Library.Directory .. "/autoload.json", "")
-                        Notify("Success", "Cleared autoload.", SuccessColor)
+                        writefile(AutoloadFile, "")
+                        writefile(AutoloadNameFile, "")
+                        RefreshAutoloadLabel()
+                        Notify("Success", "Autoload cleared")
                     end
                 })
+
+                Library:GetConfigsList(ConfigsList)
+                RefreshAutoloadLabel()
             end
 
             do -- Theming
@@ -7694,12 +7986,8 @@ end
                     Items = Library.ThemeOrder,
                     Default = "Preset",
                     Callback = function(Value)
-                        if not Library:ApplyTheme(Value) then
-                            return
-                        end
-
-                        if ThemeReady then
-                            Notify("Theme", 'Applied "' .. Value .. '" theme.', SuccessColor)
+                        if Library:ApplyTheme(Value) and ThemeReady then
+                            Notify("Success", "Theme applied", Value)
                         end
                     end
                 })
@@ -7707,11 +7995,29 @@ end
                 ThemeReady = true
                 ThemingSection:Divider()
 
-                for Index, Value in Library.Theme do
+                -- fixed order, a plain pairs() over the theme table reshuffles the rows every run
+                local Order = { "Background", "Inline", "Tab", "Text", "Inactive Text", "Accent", "Outline", "Hovered Element" }
+                local Seen = { }
+                local Keys = { }
+
+                for _, Index in Order do
+                    if Library.Theme[Index] ~= nil then
+                        table.insert(Keys, Index)
+                        Seen[Index] = true
+                    end
+                end
+
+                for Index in Library.Theme do
+                    if not Seen[Index] then
+                        table.insert(Keys, Index)
+                    end
+                end
+
+                for _, Index in Keys do
                     ThemingSection:Label({Name = Index}):Colorpicker({
                         Name = Index,
                         Flag = Index .. "Theming",
-                        Default = Value,
+                        Default = Library.Theme[Index],
                         Callback = function(Color)
                             Library.Theme[Index] = Color
                             Library:ChangeTheme(Index, Color)
@@ -7720,139 +8026,143 @@ end
                 end
             end
 
-            do -- Mascot
-                local MascotSection = SettingsPage:Section({Name = "Mascot", Icon = "smile", Side = 2})
-                local MascotObject = Self.Mascot
-                local MascotNames = MascotObject and MascotObject:GetNames() or { }
-                local MascotDefault = MascotObject and MascotObject.CurrentMascot
+            local MascotObject = Window.Mascot
 
-                if #MascotNames == 0 then
-                    MascotNames = { "None" }
+            if MascotObject then -- Mascot
+                local MascotSection = SettingsPage:Section({Name = "Mascot", Icon = "smile", Side = 2})
+
+                -- true while the controls are being built / synced, so their callbacks don't fight the mascot
+                local Syncing = true
+
+                local State = MascotObject:GetState()
+                local Names = MascotObject:GetNames()
+
+                if #Names == 0 then
+                    Names = { "None" }
+                end
+
+                local SoundId = function()
+                    local Data = MascotObject.Mascots and MascotObject.Mascots[MascotObject.CurrentMascot]
+                    return (type(Data) == "table" and Data.ClickSound) or "102774986031312"
+                end
+
+                -- the user's sound choice survives a mascot switch (SetMascot loads the preset's sound)
+                local ApplyAudio = function()
+                    MascotObject:SetClickSound(Library.Flags["Mascot/ClickSound"] ~= "None" and SoundId() or nil)
+
+                    local Volume = Library.Flags["Mascot/ClickVolume"]
+                    if type(Volume) == "number" then
+                        MascotObject:SetClickSoundVolume(Volume / 100)
+                        Library:SetMascotClickVolume(Volume / 100)
+                    end
+                end
+
+                local Sync = function()
+                    local Was = Syncing
+                    Syncing = true
+
+                    local Now = MascotObject:GetState()
+                    SetFlag("Mascot/X", Now.X)
+                    SetFlag("Mascot/Y", Now.Y)
+                    SetFlag("Mascot/Rotation", Now.Rotation)
+                    SetFlag("Mascot/Size", Now.Size)
+
+                    Syncing = Was
                 end
 
                 MascotSection:Dropdown({
                     Name = "Mascot",
                     Flag = "Mascot/Selected",
-                    Items = MascotNames,
-                    Default = MascotDefault or MascotNames[1],
+                    Items = Names,
+                    Default = State.Name or Names[1],
                     Callback = function(Value)
-                        if MascotObject and Value ~= "None" then
-                            MascotObject:SetMascot(Value)
-                        end
+                        if Syncing or Value == MascotObject.CurrentMascot then return end
+
+                        MascotObject:SetMascot(Value)
+                        Sync()
+                        ApplyAudio()
                     end
                 })
 
                 MascotSection:Slider({
-                    Name = "Position X",
-                    Flag = "Mascot/PositionX",
-                    Min = -400,
-                    Max = 400,
-                    Default = MascotObject and (MascotObject.GetCenteredPosition and select(1, MascotObject:GetCenteredPosition()) or MascotObject.Offset.X) or -222,
-                    Decimals = 0,
+                    Name = "Position X", Flag = "Mascot/X", Min = -600, Max = 600,
+                    Default = State.X, Decimals = 0,
                     Callback = function(Value)
-                        if MascotObject and MascotObject.SetCenteredPosition then
-                            local _, CurrentY = MascotObject:GetCenteredPosition()
-                            MascotObject:SetCenteredPosition(Value, CurrentY)
-                        elseif MascotObject then
-                            MascotObject:SetPosition(Value, nil, nil)
-                        end
+                        if Syncing then return end
+                        local _, Y = MascotObject:GetCenteredPosition()
+                        MascotObject:SetCenteredPosition(Value, Y)
                     end
                 })
 
                 MascotSection:Slider({
-                    Name = "Position Y",
-                    Flag = "Mascot/PositionY",
-                    Min = -400,
-                    Max = 400,
-                    Default = MascotObject and (MascotObject.GetCenteredPosition and select(2, MascotObject:GetCenteredPosition()) or MascotObject.Offset.Y) or -333,
-                    Decimals = 0,
+                    Name = "Position Y", Flag = "Mascot/Y", Min = -600, Max = 600,
+                    Default = State.Y, Decimals = 0,
                     Callback = function(Value)
-                        if MascotObject and MascotObject.SetCenteredPosition then
-                            local CurrentX = select(1, MascotObject:GetCenteredPosition())
-                            MascotObject:SetCenteredPosition(CurrentX, Value)
-                        elseif MascotObject then
-                            MascotObject:SetPosition(nil, Value, nil)
-                        end
+                        if Syncing then return end
+                        local X = MascotObject:GetCenteredPosition()
+                        MascotObject:SetCenteredPosition(X, Value)
                     end
                 })
 
                 MascotSection:Slider({
-                    Name = "Rotation",
-                    Flag = "Mascot/Rotation",
-                    Min = -180,
-                    Max = 180,
-                    Default = MascotObject and MascotObject.Rotation or 0,
-                    Decimals = 0,
-                    Suffix = "°",
+                    Name = "Rotation", Flag = "Mascot/Rotation", Min = -180, Max = 180,
+                    Default = State.Rotation, Decimals = 0, Suffix = "°",
                     Callback = function(Value)
-                        if MascotObject then MascotObject:SetRotation(Value) end
+                        if Syncing then return end
+                        MascotObject:SetRotation(Value)
                     end
                 })
 
                 MascotSection:Slider({
-                    Name = "Size",
-                    Flag = "Mascot/Size",
-                    Min = 20,
-                    Max = 400,
-                    Default = MascotObject and MascotObject.Size.X or 120,
-                    Decimals = 0,
+                    Name = "Size", Flag = "Mascot/Size", Min = 20, Max = 400,
+                    Default = State.Size, Decimals = 0,
                     Callback = function(Value)
-                        if MascotObject then MascotObject:SetSize(Value) end
+                        if Syncing then return end
+                        MascotObject:SetSize(Value)
                     end
                 })
 
                 MascotSection:Dropdown({
-                    Name = "Click Sound",
-                    Flag = "Mascot/ClickSound",
-                    Items = {"nyaa", "None"},
-                    Default = "nyaa",
-                    Callback = function(Value)
-                        if MascotObject then
-                            MascotObject:SetClickSound(Value ~= "None" and "102774986031312" or nil)
-                        end
+                    Name = "Click Sound", Flag = "Mascot/ClickSound",
+                    Items = { "Default", "None" }, Default = "Default",
+                    Callback = function()
+                        if Syncing then return end
+                        ApplyAudio()
                     end
                 })
 
                 MascotSection:Slider({
-                    Name = "Click Sound Volume",
-                    Flag = "Mascot/ClickVolume",
-                    Min = 0,
-                    Max = 100,
-                    Default = math.floor(((MascotObject and MascotObject.ClickSoundVolume) or Library.MascotClickVolume or 0.8) * 100 + 0.5),
-                    Decimals = 0,
-                    Suffix = "%",
-                    Callback = function(Value)
-                        if MascotObject and MascotObject.SetClickSoundVolume then
-                            MascotObject:SetClickSoundVolume(Value / 100)
-                        end
-                        Library:SetMascotClickVolume(Value / 100)
+                    Name = "Click Volume", Flag = "Mascot/ClickVolume", Min = 0, Max = 100,
+                    Default = math.floor(State.ClickSoundVolume * 100 + 0.5), Decimals = 0, Suffix = "%",
+                    Callback = function()
+                        if Syncing then return end
+                        ApplyAudio()
                     end
                 })
 
                 MascotSection:Button({
                     Name = "Reset to Default",
                     Callback = function()
-                        if MascotObject then
-                            if MascotObject.SetMascot then
-                                local Names = MascotObject:GetNames()
-                                if table.find(Names, "mimi") then
-                                    MascotObject:SetMascot("mimi")
-                                end
-                            end
-                            if MascotObject.SetRotation then
-                                MascotObject:SetRotation(0)
-                            end
-                            if MascotObject.SetSize then
-                                MascotObject:SetSize(120)
-                            end
-                            if MascotObject.SetCenteredPosition then
-                                MascotObject:SetCenteredPosition(-222, -333)
-                            else
-                                MascotObject:SetPosition(-222, -333, nil)
-                            end
+                        if not MascotObject:ResetToDefault() then
+                            Notify("Error", "Reset failed", "The default mascot is missing from the registry.")
+                            return
                         end
+
+                        local Now = MascotObject:GetState()
+
+                        Syncing = true
+                        SetFlag("Mascot/Selected", Now.Name)
+                        SetFlag("Mascot/ClickSound", "Default")
+                        SetFlag("Mascot/ClickVolume", math.floor(Now.ClickSoundVolume * 100 + 0.5))
+                        Syncing = false
+
+                        Sync()
+                        ApplyAudio()
+                        Notify("Success", "Mascot reset", "Position, size, rotation and sound restored.")
                     end
                 })
+
+                Syncing = false
             end
 
             do -- Menu
@@ -7866,61 +8176,40 @@ end
                     Callback = function()
                         local Key = Library.Flags["MenuKeybind"] and Library.Flags["MenuKeybind"].Key
 
-                        -- "None" (Backspace) игнорируем, чтобы нельзя было остаться без кнопки меню
+                        -- "None" (Backspace) is ignored so the menu can never be left without a key
                         if Key and Key ~= "None" then
                             Library.MenuKeybind = Key
                         end
                     end
                 })
 
-                if Self.Watermark then
-                    MenuSection:Toggle({
-                        Name = "Watermark",
-                        Flag = "Watermark",
-                        Default = true,
-                        Callback = function(Value)
-                            Self.Watermark:SetVisibility(Value)
-                        end
-                    })
-                end
+                local Toggles = {
+                    { "Watermark", "Watermark" },
+                    { "KeybindList", "Keybind List" },
+                    { "ESPPreview", "ESP Preview" },
+                    { "Mascot", "Mascot" },
+                }
 
-                if Self.KeybindList then
-                    MenuSection:Toggle({
-                        Name = "Keybind List",
-                        Flag = "KeybindList",
-                        Default = true,
-                        Callback = function(Value)
-                            Self.KeybindList:SetVisibility(Value)
-                        end
-                    })
-                end
+                for _, Entry in Toggles do
+                    local Object = Window[Entry[1]]
 
-                if Self.ESPPreview then
-                    MenuSection:Toggle({
-                        Name = "ESP Preview",
-                        Flag = "ESPPreview",
-                        Default = true,
-                        Callback = function(Value)
-                            Self.ESPPreview:SetVisibility(Value)
-                        end
-                    })
-                end
-
-                if Self.Mascot then
-                    MenuSection:Toggle({
-                        Name = "Mascot",
-                        Flag = "Mascot",
-                        Default = true,
-                        Callback = function(Value)
-                            Self.Mascot:SetVisibility(Value)
-                        end
-                    })
+                    -- Window.X is also a Library method name, so make sure it is the real object
+                    if type(Object) == "table" and Object.SetVisibility then
+                        MenuSection:Toggle({
+                            Name = Entry[2],
+                            Flag = Entry[1],
+                            Default = true,
+                            Callback = function(Value)
+                                Object:SetVisibility(Value)
+                            end
+                        })
+                    end
                 end
 
                 MenuSection:Dropdown({
                     Name = "UI Click Sound",
                     Flag = "UIClickSound",
-                    Items = {"Simple click", "None"},
+                    Items = { "Simple click", "None" },
                     Default = "Simple click",
                     Callback = function(Value)
                         Library:SetUIClickSound(Value ~= "None" and "88442833509532" or nil)
@@ -7954,17 +8243,23 @@ end
                 })
             end
 
-            local AutoloadOk, AutoloadContent = pcall(readfile, Library.Directory .. "/autoload.json")
+            do -- Autoload
+                local Ok, Content = pcall(readfile, AutoloadFile)
 
-            if AutoloadOk and AutoloadContent ~= "" then
-                local Success, Error = Library:LoadConfig(AutoloadContent)
+                if Ok and type(Content) == "string" and Content ~= "" then
+                    local Success, Err = Library:LoadConfig(Content)
+                    local Ok2, Name = pcall(readfile, AutoloadNameFile)
+                    Name = Ok2 and CleanName(Name) or ""
 
-                if Success then
-                    Notify("Autoload", "Loaded autoload config.", SuccessColor)
-                else
-                    Notify("Autoload", "Failed to load autoload:\n" .. tostring(Error), ErrorColor)
+                    if Success then
+                        Notify("Success", "Autoload", Name ~= "" and ('Loaded "' .. Name .. '".') or "Loaded autoload config.")
+                    else
+                        Notify("Warning", "Autoload had errors", tostring(Err))
+                    end
                 end
             end
+
+            return SettingsPage
         end
     end
 end
