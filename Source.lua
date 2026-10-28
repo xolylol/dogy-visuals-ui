@@ -2631,7 +2631,6 @@ end
             Keys["MouseButton1"] = Keys["MouseButton1"] or "MB1"
             Keys["MouseButton2"] = Keys["MouseButton2"] or "MB2"
             Keys["MouseButton3"] = Keys["MouseButton3"] or "MB3"
-            Keys["Delete"] = "Delete" -- Delete is a valid bind; only the menu's Remove action clears it.
 
             local function Capitalize(Text)
                 if type(Text) ~= "string" or Text == "" then
@@ -2736,7 +2735,7 @@ end
                 Library:Create("UICorner", {
                     Name = "\0",
                     Parent = Items["KeyButton"].Instance,
-                    CornerRadius = UDim.new(0, 3)
+                    CornerRadius = UDim.new(0, 4)
                 })
 
                 Items["KeyStroke"] = Library:Create("UIStroke", {
@@ -2796,7 +2795,7 @@ end
                 Library:Create("UICorner", {
                     Name = "\0",
                     Parent = Items["KeybindWindow"].Instance,
-                    CornerRadius = UDim.new(0, 4)
+                    CornerRadius = UDim.new(0, 6)
                 })
 
                 Library:Create("UIListLayout", {
@@ -3326,23 +3325,14 @@ end
 
                 local InputBegan
                 InputBegan = UserInputService.InputBegan:Connect(function(Input)
-                    -- Capture the pressed key itself. Delete/Backspace are valid keybinds;
-                    -- clearing a bind is done explicitly with the menu's Remove option.
                     if Input.UserInputType == Enum.UserInputType.Keyboard then
-                        if Input.KeyCode == Enum.KeyCode.Unknown then
-                            return
-                        end
                         Keybind:Set(Input.KeyCode)
-                    elseif Input.UserInputType ~= Enum.UserInputType.None then
-                        Keybind:Set(Input.UserInputType)
                     else
-                        return
+                        Keybind:Set(Input.UserInputType)
                     end
 
-                    if InputBegan then
-                        InputBegan:Disconnect()
-                        InputBegan = nil
-                    end
+                    InputBegan:Disconnect()
+                    InputBegan = nil
                 end)
             end)
 
@@ -3417,13 +3407,8 @@ end
                 Keybind:SetOpen(not Keybind.IsOpen)
             end
 
-            -- middle click (GuiButton has no MouseButton3 event, so listen to InputBegan) and right click
-            Library:Connect(KeyButton.InputBegan, function(Input)
-                if Input.UserInputType == Enum.UserInputType.MouseButton3 then
-                    ToggleMenu()
-                end
-            end)
-
+            -- Mode menu opens only with right mouse button.
+            -- Left click is reserved for picking a key; middle click does nothing.
             Items["KeyButton"]:Connect("MouseButton2Down", ToggleMenu)
 
             if Data.Default then
@@ -8809,6 +8794,58 @@ end
                     end
                 })
 
+                ConfigsSection:Divider()
+
+                local ConfigJSON = ""
+                local ConfigJSONBox = ConfigsSection:Textbox({
+                    Name = "Config JSON",
+                    Flag = "ConfigJSON",
+                    Placeholder = "Paste config JSON here",
+                    Callback = function(Value)
+                        ConfigJSON = tostring(Value or "")
+                    end
+                })
+
+                ConfigsSection:Button({
+                    Name = "Import config JSON",
+                    Callback = function()
+                        if ConfigJSON == "" then
+                            Notify("Error", "Empty JSON", "Paste a config JSON first.")
+                            return
+                        end
+
+                        local Valid, Decoded = pcall(HttpService.JSONDecode, HttpService, ConfigJSON)
+                        if not Valid or type(Decoded) ~= "table" then
+                            Notify("Error", "Invalid JSON", "The pasted text is not a valid config.")
+                            return
+                        end
+
+                        local Success, Err = Library:LoadConfig(ConfigJSON)
+                        if Success then
+                            Notify("Success", "Config imported", "JSON config loaded.")
+                        else
+                            Notify("Warning", "Import had errors", tostring(Err))
+                        end
+                    end
+                })
+
+                ConfigsSection:Button({
+                    Name = "Export current config",
+                    Callback = function()
+                        local Data = Library:GetConfig()
+                        if not Data then
+                            Notify("Error", "Export failed", "Current settings could not be read.")
+                            return
+                        end
+
+                        ConfigJSONBox:Set(Data)
+                        if setclipboard then
+                            pcall(setclipboard, Data)
+                        end
+                        Notify("Success", "Config exported", setclipboard and "JSON placed in the box and copied to clipboard." or "JSON placed in the box.")
+                    end
+                })
+
                 Library:GetConfigsList(ConfigsList)
                 RefreshAutoloadLabel()
             end
@@ -8860,6 +8897,225 @@ end
                             Library:ChangeTheme(Index, Color)
                         end
                     })
+                end
+
+                -- User themes are stored separately from ordinary configs.
+                local ThemesFolder = Library.Directory .. "/Themes"
+                if not isfolder(ThemesFolder) then
+                    makefolder(ThemesFolder)
+                end
+
+                local ThemePath = function(Name)
+                    return ThemesFolder .. "/" .. Name .. ".json"
+                end
+
+                local ThemeName = ""
+                local ThemeJSON = ""
+                local ThemeSelected = nil
+
+                ThemingSection:Divider()
+                ThemingSection:Textbox({
+                    Name = "Custom theme name",
+                    Flag = "CustomThemeName",
+                    Placeholder = "Theme name",
+                    Callback = function(Value)
+                        ThemeName = CleanName(Value)
+                    end
+                })
+
+                local ThemeList = ThemingSection:ListBox({
+                    Flag = "CustomThemes",
+                    Items = {},
+                    Multi = false,
+                    Height = 100,
+                    Callback = function(Value)
+                        ThemeSelected = type(Value) == "string" and Value or nil
+                    end
+                })
+
+                local RefreshThemes = function()
+                    local Names = {}
+                    if isfolder(ThemesFolder) then
+                        for _, File in listfiles(ThemesFolder) do
+                            local Name = File:match("[/\\\\]([^/\\\\]+)%.json$")
+                            if Name then table.insert(Names, Name) end
+                        end
+                    end
+                    table.sort(Names)
+                    ThemeList:Refresh(Names)
+                end
+
+                local ThemeToJSON = function()
+                    local Data = {}
+                    for Name, Color in Library.Theme do
+                        Data[Name] = {math.floor(Color.R * 255 + 0.5), math.floor(Color.G * 255 + 0.5), math.floor(Color.B * 255 + 0.5)}
+                    end
+                    return HttpService:JSONEncode(Data)
+                end
+
+                local ApplyThemeJSON = function(Content)
+                    local Ok, Data = pcall(HttpService.JSONDecode, HttpService, Content)
+                    if not Ok or type(Data) ~= "table" then
+                        return false, "Invalid theme JSON."
+                    end
+
+                    local Applied = 0
+                    for Name, RGB in Data do
+                        if type(Name) == "string" and type(RGB) == "table"
+                        and type(RGB[1]) == "number" and type(RGB[2]) == "number" and type(RGB[3]) == "number"
+                        and Library.Theme[Name] ~= nil then
+                            local Color = Color3.fromRGB(
+                                math.clamp(math.floor(RGB[1]), 0, 255),
+                                math.clamp(math.floor(RGB[2]), 0, 255),
+                                math.clamp(math.floor(RGB[3]), 0, 255)
+                            )
+                            Library.Theme[Name] = Color
+                            Library:ChangeTheme(Name, Color)
+                            local Setter = SetFlags[Name .. "Theming"]
+                            if Setter then Setter(Color, 0) end
+                            Applied += 1
+                        end
+                    end
+
+                    return Applied > 0, Applied > 0 and nil or "No recognized theme colors found."
+                end
+
+                ThemingSection:Button({
+                    Name = "Create theme",
+                    Callback = function()
+                        local Name = CleanName(ThemeName)
+                        if Name == "" then
+                            Notify("Error", "Name is empty", "Type a theme name first.")
+                            return
+                        end
+                        if isfile(ThemePath(Name)) then
+                            Notify("Error", "Theme exists", "Use Overwrite theme instead.")
+                            return
+                        end
+                        writefile(ThemePath(Name), ThemeToJSON())
+                        RefreshThemes()
+                        ThemeList:Set(Name)
+                        Notify("Success", "Theme created", Name)
+                    end
+                })
+
+                ThemingSection:Button({
+                    Name = "Load theme",
+                    Callback = function()
+                        if not ThemeSelected or not isfile(ThemePath(ThemeSelected)) then
+                            Notify("Error", "No theme selected", "Select a saved theme first.")
+                            return
+                        end
+                        local Ok, Content = pcall(readfile, ThemePath(ThemeSelected))
+                        if not Ok then Notify("Error", "Read failed", tostring(Content)); return end
+                        local Success, Err = ApplyThemeJSON(Content)
+                        if Success then Notify("Success", "Theme loaded", ThemeSelected)
+                        else Notify("Error", "Theme failed", tostring(Err)) end
+                    end
+                })
+
+                ThemingSection:Button({
+                    Name = "Overwrite theme",
+                    Callback = function()
+                        if not ThemeSelected or not isfile(ThemePath(ThemeSelected)) then
+                            Notify("Error", "No theme selected", "Select a saved theme first.")
+                            return
+                        end
+                        writefile(ThemePath(ThemeSelected), ThemeToJSON())
+                        Notify("Success", "Theme saved", ThemeSelected)
+                    end
+                })
+
+                ThemingSection:Button({
+                    Name = "Delete theme",
+                    Callback = function()
+                        if not ThemeSelected or not isfile(ThemePath(ThemeSelected)) then
+                            Notify("Error", "No theme selected", "Select a saved theme first.")
+                            return
+                        end
+                        delfile(ThemePath(ThemeSelected))
+                        ThemeSelected = nil
+                        RefreshThemes()
+                        Notify("Success", "Theme deleted")
+                    end
+                })
+
+                ThemingSection:Button({
+                    Name = "Refresh theme list",
+                    Callback = RefreshThemes
+                })
+
+                ThemingSection:Divider()
+                local ThemeJSONBox = ThemingSection:Textbox({
+                    Name = "Theme JSON",
+                    Flag = "ThemeJSON",
+                    Placeholder = "Paste theme JSON here",
+                    Callback = function(Value)
+                        ThemeJSON = tostring(Value or "")
+                    end
+                })
+
+                ThemingSection:Button({
+                    Name = "Import theme",
+                    Callback = function()
+                        if ThemeJSON == "" then
+                            Notify("Error", "Empty JSON", "Paste a theme JSON first.")
+                            return
+                        end
+                        local Success, Err = ApplyThemeJSON(ThemeJSON)
+                        if Success then Notify("Success", "Theme imported", "JSON theme applied.")
+                        else Notify("Error", "Invalid theme JSON", tostring(Err)) end
+                    end
+                })
+
+                ThemingSection:Button({
+                    Name = "Export current theme",
+                    Callback = function()
+                        local Data = ThemeToJSON()
+                        ThemeJSONBox:Set(Data)
+                        if setclipboard then pcall(setclipboard, Data) end
+                        Notify("Success", "Theme exported", setclipboard and "JSON placed in the box and copied to clipboard." or "JSON placed in the box.")
+                    end
+                })
+
+                local DefaultThemeFile = Library.Directory .. "/default-theme.txt"
+                local DefaultThemeName = "none"
+
+                ThemingSection:Button({
+                    Name = "Set as default",
+                    Callback = function()
+                        if not ThemeSelected or not isfile(ThemePath(ThemeSelected)) then
+                            Notify("Error", "No theme selected", "Select a saved theme first.")
+                            return
+                        end
+                        writefile(DefaultThemeFile, ThemeSelected)
+                        DefaultThemeName = ThemeSelected
+                        DefaultThemeLabel:SetText("Current default theme: " .. DefaultThemeName)
+                        Notify("Success", "Default theme set", ThemeSelected)
+                    end
+                })
+
+                ThemingSection:Button({
+                    Name = "Reset default",
+                    Callback = function()
+                        if isfile(DefaultThemeFile) then delfile(DefaultThemeFile) end
+                        DefaultThemeName = "none"
+                        DefaultThemeLabel:SetText("Current default theme: none")
+                        Notify("Success", "Default theme reset")
+                    end
+                })
+
+                local DefaultThemeLabel = ThemingSection:Label({Name = "Current default theme: none"})
+                RefreshThemes()
+
+                -- Load a saved default custom theme at startup, if one was selected.
+                local DefaultOk, SavedDefault = pcall(readfile, DefaultThemeFile)
+                if DefaultOk and type(SavedDefault) == "string" and SavedDefault ~= ""
+                and isfile(ThemePath(SavedDefault)) then
+                    local ReadOk, Content = pcall(readfile, ThemePath(SavedDefault))
+                    if ReadOk then ApplyThemeJSON(Content) end
+                    DefaultThemeName = SavedDefault
+                    DefaultThemeLabel:SetText("Current default theme: " .. DefaultThemeName)
                 end
             end
 
