@@ -1,4 +1,3 @@
--- DOGY VISUALS UI PATCH v6: mascot reference position, accent icons, keybind registry, clipboard notifications, visibility animations
 --[[
     Made by samet
     Example is at the bottom.
@@ -26,7 +25,6 @@ local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
 local TweenService = game:GetService("TweenService")
 local GuiService = game:GetService("GuiService")
-local SoundService = game:GetService("SoundService")
 local CoreGui = cloneref(game:GetService("CoreGui"))
 
 gethui = gethui or function() return CoreGui end
@@ -36,8 +34,7 @@ local IsMobile = UserInputService.TouchEnabled or false
 local GuiInset = GuiService:GetGuiInset().Y
 local Mouse = cloneref(LocalPlayer:GetMouse())
 
-local Library = {
-    BuildVersion = "2026.10.27-mascot-settings-v2", 
+local Library = { 
     Flags = { },
 
     MenuKeybind = tostring(Enum.KeyCode.X),
@@ -85,13 +82,6 @@ local Library = {
     Theme = nil,
 
     Font = nil,
-
-    UIClickSoundId = "rbxassetid://88442833509532",
-    MascotClickSoundId = "rbxassetid://102774986031312",
-    UIClickSound = nil,
-    MascotClickSound = nil,
-    UIClickVolume = 0.65,
-    MascotClickVolume = 0.8,
 } do 
     Library.__index = Library
 
@@ -480,52 +470,6 @@ local Library = {
         })
     end
 
-    Library.NormalizeSoundId = function(Self, SoundId)
-        if SoundId == nil or SoundId == "" or SoundId == false then
-            return nil
-        end
-
-        local Value = tostring(SoundId)
-        if Value:match("^rbxassetid://") then
-            return Value
-        end
-
-        local Number = Value:match("(%d+)")
-        return Number and ("rbxassetid://" .. Number) or nil
-    end
-
-    Library.SetUIClickSound = function(Self, SoundId)
-        Library.UIClickSoundId = Self:NormalizeSoundId(SoundId)
-        if Library.UIClickSound then
-            Library.UIClickSound.SoundId = Library.UIClickSoundId or ""
-        end
-        return Library.UIClickSoundId
-    end
-
-    Library.SetMascotClickSound = function(Self, SoundId)
-        Library.MascotClickSoundId = Self:NormalizeSoundId(SoundId)
-        if Library.MascotClickSound then
-            Library.MascotClickSound.SoundId = Library.MascotClickSoundId or ""
-        end
-        return Library.MascotClickSoundId
-    end
-
-    Library.PlayUIClickSound = function(Self)
-        local Sound = Library.UIClickSound
-        if not Sound or not Sound.Parent or not Library.UIClickSoundId then return end
-        Sound.SoundId = Library.UIClickSoundId
-        Sound.TimePosition = 0
-        pcall(function() SoundService:PlayLocalSound(Sound) end)
-    end
-
-    Library.PlayMascotClickSound = function(Self)
-        local Sound = Library.MascotClickSound
-        if not Sound or not Sound.Parent or not Library.MascotClickSoundId then return end
-        Sound.SoundId = Library.MascotClickSoundId
-        Sound.TimePosition = 0
-        pcall(function() SoundService:PlayLocalSound(Sound) end)
-    end
-
     Library.Exit = function(Self)
         for _, Connection in Library.Connections do 
             Connection:Disconnect()
@@ -545,14 +489,6 @@ local Library = {
 
         if Self.UnusedHolder then 
             Self.UnusedHolder.Instance:Destroy()
-        end
-
-        if Self.UIClickSound then
-            pcall(function() Self.UIClickSound:Destroy() end)
-        end
-
-        if Self.MascotClickSound then
-            pcall(function() Self.MascotClickSound:Destroy() end)
         end
 
         Library = nil
@@ -696,63 +632,6 @@ local Library = {
         end)
 
         return NewTween
-    end
-
-    -- Stable widget visibility animation. Unlike FadeDescendants, this does not restore
-    -- stale transparency values from an older hide tween after a newer show tween.
-    Library.AnimatedVisibility = function(Self, Root, Visible, State, ScaleObject)
-        State = State or {}
-        State.Token = (State.Token or 0) + 1
-        local Token = State.Token
-        State.Visible = Visible and true or false
-        State.Baseline = State.Baseline or {}
-
-        local RootObject = Root.Instance or Root
-        if not RootObject then return State end
-
-        local Targets = RootObject:GetDescendants()
-        table.insert(Targets, RootObject)
-
-        if Visible then
-            RootObject.Visible = true
-        end
-
-        for _, Object in Targets do
-            local Property = Library:GetTweenProperty(Object)
-            if type(Property) == "table" then
-                for _, Name in Property do
-                    if State.Baseline[Object] == nil then State.Baseline[Object] = {} end
-                    if State.Baseline[Object][Name] == nil then
-                        local Ok, Value = pcall(function() return Object[Name] end)
-                        if Ok then State.Baseline[Object][Name] = Value end
-                    end
-                    local Target = Visible and State.Baseline[Object][Name] or 1
-                    if Target ~= nil then Library:Tween({[Name] = Target}, TweenInfo.new(0.25, Enum.EasingStyle.Quart, Visible and Enum.EasingDirection.Out or Enum.EasingDirection.In), Object) end
-                end
-            elseif Property then
-                if State.Baseline[Object] == nil then State.Baseline[Object] = {} end
-                if State.Baseline[Object][Property] == nil then
-                    local Ok, Value = pcall(function() return Object[Property] end)
-                    if Ok then State.Baseline[Object][Property] = Value end
-                end
-                local Target = Visible and State.Baseline[Object][Property] or 1
-                if Target ~= nil then Library:Tween({[Property] = Target}, TweenInfo.new(0.25, Enum.EasingStyle.Quart, Visible and Enum.EasingDirection.Out or Enum.EasingDirection.In), Object) end
-            end
-        end
-
-        if ScaleObject then
-            ScaleObject:Tween({Scale = Visible and 1 or 0.85}, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Visible and Enum.EasingDirection.Out or Enum.EasingDirection.In))
-        end
-
-        if not Visible then
-            task.delay(0.27, function()
-                if State.Token == Token and not State.Visible and RootObject.Parent then
-                    RootObject.Visible = false
-                end
-            end)
-        end
-
-        return State
     end
 
     Library.FadeDescendants = function(Self, Visibility, Callback)
@@ -1039,15 +918,8 @@ local Library = {
     end
 
     Library.Round = function(Self, Number, Float)
-        Number = tonumber(Number) or 0
-        Float = tonumber(Float)
-
-        if not Float then
-            return Number
-        end
-
-        local Multiplier = 10 ^ Float
-        return math.floor(Number * Multiplier + 0.5) / Multiplier
+        local Multiplier = 1 / (Float or 1)
+        return math.floor(Number * Multiplier) / Multiplier
     end
 
     Library.GetConfig = function(Self)
@@ -1388,62 +1260,6 @@ local Library = {
         ResetOnSpawn = false
     })
 
-    Library.UIClickSound = Instance.new("Sound")
-    Library.UIClickSound.Name = "UIClickSound"
-    Library.UIClickSound.SoundId = Library.UIClickSoundId
-    Library.UIClickSound.Volume = Library.UIClickVolume or 0.65
-    Library.UIClickSound.Parent = SoundService
-
-    Library.MascotClickSound = Instance.new("Sound")
-    Library.MascotClickSound.Name = "MascotClickSound"
-    Library.MascotClickSound.SoundId = Library.MascotClickSoundId
-    Library.MascotClickSound.Volume = Library.MascotClickVolume or 0.8
-    Library.MascotClickSound.Parent = SoundService
-
-    Library:Connect(UserInputService.InputBegan, function(Input)
-        if Input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
-
-        local WindowObject = Library.ActiveWindow
-        local MainFrame = WindowObject and WindowObject.Items and WindowObject.Items.MainFrame and WindowObject.Items.MainFrame.Instance
-
-        if not WindowObject or not WindowObject.IsOpen or not MainFrame or not MainFrame.Visible then return end
-
-        local Position = Input.Position
-        local InMainFrame = Position.X >= MainFrame.AbsolutePosition.X
-            and Position.X <= MainFrame.AbsolutePosition.X + MainFrame.AbsoluteSize.X
-            and Position.Y >= MainFrame.AbsolutePosition.Y
-            and Position.Y <= MainFrame.AbsolutePosition.Y + MainFrame.AbsoluteSize.Y
-
-        local InPopup = false
-        local Ok, GuiObjects = pcall(function()
-            return GuiService:GetGuiObjectsAtPosition(Position.X, Position.Y)
-        end)
-
-        if Ok and GuiObjects then
-            for _, GuiObject in GuiObjects do
-                if GuiObject:IsDescendantOf(Library.Holder.Instance) then
-                    InPopup = true
-                    break
-                end
-            end
-        end
-
-        local OnMascot = false
-        if WindowObject and WindowObject.Mascot and WindowObject.Mascot.Items and WindowObject.Mascot.Items.Image then
-            local MascotImage = WindowObject.Mascot.Items.Image.Instance
-            if MascotImage.Visible then
-                OnMascot = Position.X >= MascotImage.AbsolutePosition.X
-                    and Position.X <= MascotImage.AbsolutePosition.X + MascotImage.AbsoluteSize.X
-                    and Position.Y >= MascotImage.AbsolutePosition.Y
-                    and Position.Y <= MascotImage.AbsolutePosition.Y + MascotImage.AbsoluteSize.Y
-            end
-        end
-
-        if (InMainFrame or InPopup) and not OnMascot then
-            Library:PlayUIClickSound()
-        end
-    end)
-
     Library.NotifHolder = Library:Create("ScreenGui", {
         Parent = gethui(),
         IgnoreGuiInset = true,
@@ -1495,7 +1311,6 @@ local Library = {
                 Flag = Data.Flag,
                 IsOpen = false,
                 Mini = Data.Mini == true,
-                ClipboardEnabled = Data.Clipboard ~= false and Data.clipboard ~= false,
 
                 AnimationEnabled = false,
                 AnimationMode = "Linear",
@@ -1551,7 +1366,7 @@ local Library = {
                     Visible = false,
                     AutoButtonColor = false,
                     Position = UDim2.new(0, 996, 0, 92),
-                    Size = UDim2.new(0, 250, 0, 265),
+                    Size = UDim2.new(0, 250, 0, 250),
                     BorderSizePixel = 0,
                     BackgroundColor3 = Library.Theme["Background"]
                 }):AddToTheme({BackgroundColor3 = 'Background'})
@@ -1559,7 +1374,7 @@ local Library = {
                 Items["Top"] = Library:Create("Frame", {
                     Name = "\0",
                     Parent = Items["ColorpickerWindow"].Instance,
-                    Size = UDim2.new(1, 0, 0, 40),
+                    Size = UDim2.new(1, 0, 0, 55),
                     BorderSizePixel = 0,
                     BackgroundColor3 = Library.Theme["Inline"]
                 }):AddToTheme({BackgroundColor3 = 'Inline'})
@@ -1571,20 +1386,34 @@ local Library = {
                     BottomLeftRadius = UDim.new(0, 0)
                 })
                 
-                -- Tabs are intentionally removed from colorpickers.
-                -- Keep an invisible Pages container only for backwards compatibility.
                 Items["Pages"] = Library:Create("Frame", {
-                    Name = "",
+                    Name = "\0",
                     Parent = Items["Top"].Instance,
+                    AnchorPoint = Vector2.new(1, 0),
                     BackgroundTransparency = 1,
-                    Visible = false,
-                    Position = UDim2.new(0, 0, 0, 0),
-                    Size = UDim2.new(0, 0, 0, 0),
+                    Position = UDim2.new(1, 0, 0, 0),
+                    Size = UDim2.new(1, 0, 1, 0),
                     BorderSizePixel = 0
                 })
+                
+                Library:Create("UIPadding", {
+                    Name = "\0",
+                    Parent = Items["Pages"].Instance,
+                    PaddingRight = UDim.new(0, 10)
+                })
 
+                Library:Create("UIListLayout", {
+                    Name = "\0",
+                    Parent = Items["Pages"].Instance,
+                    VerticalAlignment = Enum.VerticalAlignment.Center,
+                    FillDirection = Enum.FillDirection.Horizontal,
+                    HorizontalAlignment = Enum.HorizontalAlignment.Center,
+                    Padding = UDim.new(0, 10),
+                    SortOrder = Enum.SortOrder.LayoutOrder
+                })
+                
                 Library:Create("Frame", {
-                    Name = "",
+                    Name = "\0",
                     Parent = Items["Top"].Instance,
                     Position = UDim2.new(0, 0, 1, 0),
                     Size = UDim2.new(1, 0, 0, 1),
@@ -1600,95 +1429,6 @@ local Library = {
                     Size = UDim2.new(1, 0, 1, -56),
                     BorderSizePixel = 0
                 })
-
-                if Colorpicker.ClipboardEnabled then
-                    Items["Clipboard"] = Library:Create("Frame", {
-                        Name = "\0",
-                        Parent = Items["Top"].Instance,
-                        AnchorPoint = Vector2.new(0, 0.5),
-                        Position = UDim2.new(0, 8, 0.5, 0),
-                        Size = UDim2.new(0, 150, 0, 30),
-                        BackgroundTransparency = 1,
-                        BorderSizePixel = 0
-                    })
-
-                    Library:Create("UIListLayout", {
-                        Name = "\0",
-                        Parent = Items["Clipboard"].Instance,
-                        FillDirection = Enum.FillDirection.Horizontal,
-                        VerticalAlignment = Enum.VerticalAlignment.Center,
-                        HorizontalAlignment = Enum.HorizontalAlignment.Left,
-                        Padding = UDim.new(0, 4),
-                        SortOrder = Enum.SortOrder.LayoutOrder
-                    })
-
-                    for _, ButtonData in ipairs({
-                        {Name = "Copy", Icon = "copy"},
-                        {Name = "Paste", Icon = "clipboard"},
-                    }) do
-                        local Button = Library:Create("ImageButton", {
-                            Name = "\0",
-                            Parent = Items["Clipboard"].Instance,
-                            Size = UDim2.new(0, 27, 0, 27),
-                            BackgroundColor3 = Library.Theme["Tab"],
-                            BackgroundTransparency = 0,
-                            BorderSizePixel = 0,
-                            AutoButtonColor = false,
-                            ImageColor3 = Library.Theme["Inactive Text"],
-                            Image = "",
-                            Active = true,
-                            LayoutOrder = ButtonData.Name == "Copy" and 1 or 2
-                        }):AddToTheme({BackgroundColor3 = "Tab", ImageColor3 = "Inactive Text"})
-
-                        Library:Create("UICorner", {
-                            Name = "\0",
-                            Parent = Button.Instance,
-                            CornerRadius = UDim.new(0, 5)
-                        })
-
-                        Library:Create("UIStroke", {
-                            Name = "\0",
-                            Parent = Button.Instance,
-                            Color = Library.Theme["Outline"],
-                            ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-                        }):AddToTheme({Color = "Outline"})
-
-                        local Icon = Library:Create("ImageLabel", {
-                            Name = "\0",
-                            Parent = Button.Instance,
-                            AnchorPoint = Vector2.new(0.5, 0.5),
-                            Position = UDim2.new(0.5, 0, 0.5, 0),
-                            Size = UDim2.new(0, 15, 0, 15),
-                            BackgroundTransparency = 1,
-                            BorderSizePixel = 0,
-                            ImageColor3 = Library.Theme["Inactive Text"]
-                        }):AddToTheme({ImageColor3 = "Inactive Text"})
-
-                        Library:ApplyIcon(Icon.Instance, ButtonData.Icon)
-                        Items[ButtonData.Name] = Button
-                    end
-
-                    Items["HexInput"] = Library:Create("TextBox", {
-                        Name = "\0",
-                        Parent = Items["Top"].Instance,
-                        AnchorPoint = Vector2.new(1, 0.5),
-                        Position = UDim2.new(1, -8, 0.5, 0),
-                        Size = UDim2.new(0, 82, 0, 26),
-                        BackgroundColor3 = Library.Theme["Tab"],
-                        BorderSizePixel = 0,
-                        TextColor3 = Library.Theme["Text"],
-                        PlaceholderColor3 = Library.Theme["Inactive Text"],
-                        PlaceholderText = "#RRGGBB",
-                        Text = "#FFFFFF",
-                        ClearTextOnFocus = false,
-                        TextXAlignment = Enum.TextXAlignment.Center,
-                        FontFace = Library.Font,
-                        TextSize = Library.FontSize
-                    }):AddToTheme({BackgroundColor3 = "Tab", TextColor3 = "Text", PlaceholderColor3 = "Inactive Text"})
-
-                    Library:Create("UICorner", {Name = "\0", Parent = Items["HexInput"].Instance, CornerRadius = UDim.new(0, 4)})
-                    Library:Create("UIStroke", {Name = "\0", Parent = Items["HexInput"].Instance, Color = Library.Theme["Outline"], ApplyStrokeMode = Enum.ApplyStrokeMode.Border}):AddToTheme({Color = "Outline"})
-                end
 
                 Library:Create("UICorner", {
                     Name = "\0",
@@ -1715,9 +1455,6 @@ local Library = {
                 Colorpicker.HexValue = Colorpicker.Color:ToHex()
         
                 Items["ColorpickerButton"]:Tween({BackgroundColor3 = Colorpicker.Color})
-                if Items["HexInput"] and not Items["HexInput"].Instance:IsFocused() then
-                    Items["HexInput"].Instance.Text = "#" .. Colorpicker.HexValue
-                end
 
                 if Items["Palette"] then
                     Items["Palette"]:Tween({BackgroundColor3 = Color3.fromHSV(Hue, 1, 1)})
@@ -1744,123 +1481,6 @@ local Library = {
             local ColorpickerButton = Items["ColorpickerButton"].Instance
 
             local IsSettings = Data.IsSettings or Data.Mini or (Data.Section and Data.Section.IsSettings)
-
-            local GlobalEnv = (getgenv and getgenv()) or _G
-            local SetClipboard = rawget(GlobalEnv, "setclipboard") or rawget(GlobalEnv, "toclipboard") or (syn and syn.write_clipboard)
-            local GetClipboard = rawget(GlobalEnv, "getclipboard") or rawget(GlobalEnv, "fromclipboard") or (syn and syn.read_clipboard)
-
-            local function ParseClipboardColor(Text)
-                if type(Text) ~= "string" then
-                    return nil
-                end
-
-                Text = Text:gsub("%s+", "")
-
-                local Hex = Text:match("^#?([%x][%x][%x][%x][%x][%x])$")
-                if Hex then
-                    local R = tonumber(Hex:sub(1, 2), 16)
-                    local G = tonumber(Hex:sub(3, 4), 16)
-                    local B = tonumber(Hex:sub(5, 6), 16)
-                    return Color3.fromRGB(R, G, B)
-                end
-
-                local R, G, B = Text:match("^[Rr][Gg][Bb][Aa]?%s*%(%s*(%d+)%s*,%s*(%d+)%s*,%s*(%d+)")
-                if R and G and B then
-                    return Color3.fromRGB(math.clamp(tonumber(R), 0, 255), math.clamp(tonumber(G), 0, 255), math.clamp(tonumber(B), 0, 255))
-                end
-
-                R, G, B = Text:match("^(%d+),(%d+),(%d+)$")
-                if R and G and B then
-                    return Color3.fromRGB(math.clamp(tonumber(R), 0, 255), math.clamp(tonumber(G), 0, 255), math.clamp(tonumber(B), 0, 255))
-                end
-
-                return nil
-            end
-
-            function Colorpicker:Copy()
-                local Hex = tostring(Colorpicker.HexValue or Colorpicker.Color:ToHex() or "FFFFFF"):gsub("#", ""):upper()
-                local Text = "#" .. Hex
-                if not SetClipboard then
-                    Library:Notification({Name = "Color Copy", Description = "Clipboard API is unavailable.", Duration = 2, Color = Library.Theme["Accent"]})
-                    return false
-                end
-                local Ok, Result = pcall(SetClipboard, Text)
-                if Ok and Result ~= false then
-                    Library:Notification({Name = "Color copied", Description = Text .. " copied.", Duration = 2, Color = Library.Theme["Accent"]})
-                    return true
-                end
-                Library:Notification({Name = "Color Copy", Description = "Clipboard write failed.", Duration = 2, Color = Color3.fromRGB(255, 80, 80)})
-                return false
-            end
-
-            function Colorpicker:Paste()
-                if not GetClipboard then
-                    return false
-                end
-
-                local Success, Text = pcall(GetClipboard)
-                if not Success then
-                    return false
-                end
-
-                local Color = ParseClipboardColor(tostring(Text or ""))
-                if not Color then
-                    Library:Notification({Name = "Color Paste", Description = "Clipboard has no valid color.", Duration = 2, Color = Color3.fromRGB(255, 80, 80)})
-                    return false
-                end
-
-                Colorpicker:Set(Color, Colorpicker.Alpha)
-                Library:Notification({Name = "Color pasted", Description = "Color loaded from clipboard.", Duration = 2, Color = Library.Theme["Accent"]})
-                return true
-            end
-
-            if Items["Copy"] then
-                Items["Copy"]:OnHover(function()
-                    Items["Copy"]:Tween({BackgroundColor3 = Library.Theme["Hovered Element"], ImageColor3 = Library.Theme.Text})
-                end, function()
-                    Items["Copy"]:Tween({BackgroundColor3 = Library.Theme.Tab, ImageColor3 = Library.Theme["Inactive Text"]})
-                end)
-
-                Items["Copy"]:Connect("MouseButton1Down", function()
-                    Colorpicker:Copy()
-                end)
-                Items["Copy"]:Connect("MouseButton1Click", function()
-                    Colorpicker:Copy()
-                end)
-                Items["Copy"]:Connect("Activated", function()
-                    Colorpicker:Copy()
-                end)
-            end
-
-            if Items["Paste"] then
-                Items["Paste"]:OnHover(function()
-                    Items["Paste"]:Tween({BackgroundColor3 = Library.Theme["Hovered Element"], ImageColor3 = Library.Theme.Text})
-                end, function()
-                    Items["Paste"]:Tween({BackgroundColor3 = Library.Theme.Tab, ImageColor3 = Library.Theme["Inactive Text"]})
-                end)
-
-                Items["Paste"]:Connect("MouseButton1Down", function()
-                    Colorpicker:Paste()
-                end)
-                Items["Paste"]:Connect("MouseButton1Click", function()
-                    Colorpicker:Paste()
-                end)
-                Items["Paste"]:Connect("Activated", function()
-                    Colorpicker:Paste()
-                end)
-            end
-
-            if Items["HexInput"] then
-                Items["HexInput"]:Connect("FocusLost", function()
-                    local Text = tostring(Items["HexInput"].Instance.Text or "")
-                    local Color = ParseClipboardColor(Text)
-                    if Color then
-                        Colorpicker:Set(Color, Colorpicker.Alpha)
-                    else
-                        Items["HexInput"].Instance.Text = "#" .. Colorpicker.HexValue
-                    end
-                end)
-            end
 
             function Colorpicker:SetOpen(Bool)
                 if Debounce then 
@@ -1977,11 +1597,7 @@ local Library = {
                 if type(Color) == "table" then
                     Color = Color3.fromRGB(Color[1], Color[2], Color[3])
                 elseif type(Color) == "string" then
-                    local Parsed = ParseClipboardColor(Color)
-                    if not Parsed then
-                        return false
-                    end
-                    Color = Parsed
+                    Color = Color3.fromHex(Color)
                 else
                     Color = Color -- lul
                 end 
@@ -2232,22 +1848,29 @@ end
                 return Page
             end
 
-            do -- Color content (no tabs)
+            do -- Pages
+                local ColorTab
+                local AnimationsTab
+
                 if Colorpicker.Mini then
                     Items["Top"].Instance.Visible = false
                     Items["Content"].Instance.Position = UDim2.new(0, 0, 0, 0)
                     Items["Content"].Instance.Size = UDim2.new(1, 0, 1, 0)
+
+                    Items["Color"] = Library:Create("Frame", {
+                        Name = "\0",
+                        Parent = Items["Content"].Instance,
+                        BackgroundTransparency = 1,
+                        Size = UDim2.new(1, 0, 1, 0),
+                        BorderSizePixel = 0
+                    })
+                else
+                    ColorTab = Colorpicker:Page({Name = "Color", Icon = "rbxassetid://78658715450812"})
+                    AnimationsTab = Colorpicker:Page({Name = "Animations", Icon = "rbxassetid://102653368798088"})
+                    Items["Color"] = ColorTab.Items.Page
                 end
 
-                Items["Color"] = Library:Create("Frame", {
-                    Name = "\0",
-                    Parent = Items["Content"].Instance,
-                    BackgroundTransparency = 1,
-                    Size = UDim2.new(1, 0, 1, 0),
-                    BorderSizePixel = 0
-                })
-
-                do -- Color controls
+                do -- Color tab
                     Items["Palette"] = Library:Create("TextButton", {
                         Name = "\0",
                         FontFace = Library.Font,
@@ -2441,8 +2064,7 @@ end
                         Image = "http://www.roblox.com/asset/?id=18274452449",
                         BackgroundTransparency = 1,
                         Size = UDim2.new(1, 0, 1, 0),
-                        ZIndex = 1,
-                        Active = false,
+                        ZIndex = 2,
                         ImageColor3 = Color3.fromRGB(255, 255, 255),
                         BorderSizePixel = 0
                     })
@@ -2471,9 +2093,7 @@ end
                         Parent = Items["Alpha"].Instance,
                         BackgroundTransparency = 1,
                         Size = UDim2.new(0, 15, 0, 15),
-                        BorderSizePixel = 0,
-                        ZIndex = 3,
-                        Active = true
+                        BorderSizePixel = 0
                     })
                     
                     Library:Create("UICorner", {
@@ -2492,6 +2112,245 @@ end
                     }):AddToTheme({Color = 'Text'})
                 end
 
+                if ColorTab then
+                    ColorTab:Turn()
+                end
+
+                if not Colorpicker.Mini then
+                    do -- Animations tab
+                        Items["Animations"] = AnimationsTab.Items.Page
+                        
+                        Library:Create("UIPadding", {
+                            Name = "\0",
+                            Parent = Items["Animations"].Instance,
+                            PaddingTop = UDim.new(0, 10),
+                            PaddingBottom = UDim.new(0, 10),
+                            PaddingRight = UDim.new(0, 10),
+                            PaddingLeft = UDim.new(0, 10)
+                        })
+                        
+                        Library:Create("UIListLayout", {
+                            Name = "\0",
+                            Parent = Items["Animations"].Instance,
+                            Padding = UDim.new(0, 8),
+                            SortOrder = Enum.SortOrder.LayoutOrder
+                        })
+
+                        local KeyframeOneLabel
+                        local KeyframeTwoLabel
+
+                        local SyncAnimationControls = function(Mode)
+                            local IsRainbow = Mode == "Rainbow"
+
+                            if KeyframeOneLabel then
+                                KeyframeOneLabel:SetVisibility(not IsRainbow)
+                            end
+
+                            if KeyframeTwoLabel then
+                                KeyframeTwoLabel:SetVisibility(not IsRainbow)
+                            end
+                        end
+
+                        local UpdateAnimating = function()
+                            Library:SetColorpickerAnimating(Colorpicker, Colorpicker.AnimationEnabled)
+                        end
+
+                        Library:Toggle({
+                            Name = "Enabled",
+                            Flag = Colorpicker.Flag .. "_Enabled",
+                            Default = false,
+                            Parent = Items["Animations"],
+                            Callback = function(Value)
+                                Colorpicker.AnimationEnabled = Value
+                                UpdateAnimating()
+                            end
+                        })
+
+                        Library:Dropdown({
+                            Name = "Animations",
+                            Flag = Colorpicker.Flag .. "_Animation",
+                            Items = {"Linear", "Oscillation", "Pulse", "Strobe", "Ping Pong", "Rainbow"},
+                            Default = "Linear",
+                            Parent = Items["Animations"],
+                            Callback = function(Value)
+                                Colorpicker.AnimationMode = Value
+                                SyncAnimationControls(Value)
+                                UpdateAnimating()
+                            end
+                        })
+
+                        Library:Slider({
+                            Name = "Speed",
+                            Flag = Colorpicker.Flag .. "_Speed",
+                            Min = 0,
+                            Max = 3,
+                            Default = 1,
+                            Decimals = 0.01,
+                            Suffix = "x",
+                            Parent = Items["Animations"],
+                            Callback = function(Value)
+                                Colorpicker.AnimationSpeed = Value
+                            end
+                        })
+
+                        KeyframeOneLabel = Library:Label({Name = "Keyframe 1", Parent = Items["Animations"]})
+                        Colorpicker.KeyframeOne = Library:CreateColorpicker({
+                            Parent = KeyframeOneLabel.Items.SubElements,
+                            Flag = Colorpicker.Flag .. "_Keyframe1",
+                            Default = Color3.fromRGB(255, 0, 0),
+                            Mini = true,
+                            IsSettings = true,
+                        })
+
+                        KeyframeTwoLabel = Library:Label({Name = "Keyframe 2", Parent = Items["Animations"]})
+                        Colorpicker.KeyframeTwo = Library:CreateColorpicker({
+                            Parent = KeyframeTwoLabel.Items.SubElements,
+                            Flag = Colorpicker.Flag .. "_Keyframe2",
+                            Default = Color3.fromRGB(255, 255, 255),
+                            Mini = true,
+                            IsSettings = true,
+                        })
+
+                        Colorpicker.AnimationEnabled = Flags[Colorpicker.Flag .. "_Enabled"] or false
+                        Colorpicker.AnimationMode = Flags[Colorpicker.Flag .. "_Animation"] or "Linear"
+                        Colorpicker.AnimationSpeed = Flags[Colorpicker.Flag .. "_Speed"] or 1
+
+                        SyncAnimationControls(Colorpicker.AnimationMode)
+                        UpdateAnimating()
+                    end
+                end
+            end
+
+            if not Colorpicker.Mini then -- Copy / Paste
+                -- Освобождаем место слева в верхней панели под две кнопки
+                Items["Pages"].Instance.Size = UDim2.new(1, -72, 1, 0)
+
+                local Notify = function(Text)
+                    pcall(function()
+                        Library:Notification({
+                            Name = "Color",
+                            Description = Text,
+                            Duration = 1.5
+                        })
+                    end)
+                end
+
+                local ParseColor = function(Text)
+                    Text = tostring(Text or ""):gsub("%s", ""):gsub("^[Rr][Gg][Bb]%(", ""):gsub("%)$", "")
+
+                    local Hex = Text:match("^#?(%x%x%x%x%x%x)$")
+                    if Hex then
+                        return Color3.fromHex(Hex)
+                    end
+
+                    local Short = Text:match("^#?(%x%x%x)$")
+                    if Short then
+                        return Color3.fromHex((Short:gsub(".", "%0%0")))
+                    end
+
+                    local R, G, B = Text:match("^(%d+),(%d+),(%d+)$")
+                    if R then
+                        return Color3.fromRGB(math.clamp(tonumber(R), 0, 255), math.clamp(tonumber(G), 0, 255), math.clamp(tonumber(B), 0, 255))
+                    end
+
+                    return nil
+                end
+
+                local MakeIconButton = function(IconName, Fallback, X)
+                    local Button = Library:Create("TextButton", {
+                        Name = "\0",
+                        FontFace = Library.Font,
+                        TextSize = Library.FontSize - 1,
+                        Parent = Items["Top"].Instance,
+                        Text = "",
+                        AutoButtonColor = false,
+                        AnchorPoint = Vector2.new(0, 0.5),
+                        Position = UDim2.new(0, X, 0.5, 0),
+                        Size = UDim2.new(0, 28, 0, 28),
+                        BorderSizePixel = 0,
+                        TextColor3 = Library.Theme["Inactive Text"],
+                        BackgroundColor3 = Library.Theme["Tab"]
+                    }):AddToTheme({BackgroundColor3 = 'Tab', TextColor3 = 'Inactive Text'})
+
+                    Library:Create("UICorner", {
+                        Name = "\0",
+                        Parent = Button.Instance,
+                        CornerRadius = UDim.new(0, 5)
+                    })
+
+                    local Icon = Library:Create("ImageLabel", {
+                        Name = "\0",
+                        Parent = Button.Instance,
+                        AnchorPoint = Vector2.new(0.5, 0.5),
+                        Position = UDim2.new(0.5, 0, 0.5, 0),
+                        Size = UDim2.new(0, 16, 0, 16),
+                        BackgroundTransparency = 1,
+                        BorderSizePixel = 0,
+                        ImageColor3 = Library.Theme["Inactive Text"]
+                    }):AddToTheme({ImageColor3 = 'Inactive Text'})
+
+                    -- Если иконки (Lucide) недоступны, показываем букву
+                    if not Library:ApplyIcon(Icon.Instance, IconName) then
+                        Icon.Instance.Visible = false
+                        Button.Instance.Text = Fallback
+                    end
+
+                    Button:Connect("MouseEnter", function()
+                        Icon:Tween({ImageColor3 = Library.Theme["Accent"]})
+                    end)
+
+                    Button:Connect("MouseLeave", function()
+                        Icon:Tween({ImageColor3 = Library.Theme["Inactive Text"]})
+                    end)
+
+                    return Button
+                end
+
+                local CopyButton = MakeIconButton("copy", "C", 10)
+                local PasteButton = MakeIconButton("clipboard-paste", "P", 42)
+
+                CopyButton:Connect("MouseButton1Down", function()
+                    Library.ColorClipboard = {
+                        Color = Colorpicker.Color,
+                        Alpha = Colorpicker.Alpha
+                    }
+
+                    local Hex = "#" .. Colorpicker.Color:ToHex():upper()
+
+                    if setclipboard then
+                        pcall(setclipboard, Hex)
+                    end
+
+                    Notify("Copied " .. Hex)
+                end)
+
+                PasteButton:Connect("MouseButton1Down", function()
+                    local Saved = Library.ColorClipboard
+                    local Text
+
+                    if getclipboard then
+                        local Ok, Result = pcall(getclipboard)
+                        Text = Ok and Result or nil
+                    end
+
+                    local Parsed = Text and ParseColor(Text) or nil
+                    local Color, Alpha
+
+                    if Parsed and not (Saved and Parsed:ToHex() == Saved.Color:ToHex()) then
+                        -- Цвет из буфера обмена (hex или r,g,b), прозрачность остаётся прежней
+                        Color, Alpha = Parsed, Colorpicker.Alpha
+                    elseif Saved then
+                        Color, Alpha = Saved.Color, Saved.Alpha
+                    end
+
+                    if not Color then
+                        Notify("Nothing to paste")
+                        return
+                    end
+
+                    Colorpicker:Set(Color, Alpha)
+                    Notify("Pasted #" .. Color:ToHex():upper())
+                end)
             end
 
             Items["ColorpickerButton"]:Connect("MouseButton1Down", function()
@@ -2551,39 +2410,28 @@ end
             end
     
             if Items["Alpha"] then
-                local BeginAlphaSlide = function(Input)
-                    if Input.UserInputType ~= Enum.UserInputType.MouseButton1 and Input.UserInputType ~= Enum.UserInputType.Touch then
-                        return
-                    end
-
-                    Library:SetOpenFrameInteracting(true)
-                    SlidingAlpha = true
-                    Colorpicker:SlideAlpha(Input)
-
-                    if AlphaChanged then
-                        return
-                    end
-
-                    AlphaChanged = Input.Changed:Connect(function()
-                        if Input.UserInputState == Enum.UserInputState.End then
-                            SlidingAlpha = false
-                            Library:SetOpenFrameInteracting(false)
-
-                            AlphaChanged:Disconnect()
-                            AlphaChanged = nil
+                Items["Alpha"]:Connect("InputBegan", function(Input)
+                    if Input.UserInputType == Enum.UserInputType.MouseButton1 or Input.UserInputType == Enum.UserInputType.Touch then
+                        Library:SetOpenFrameInteracting(true)
+                        SlidingAlpha = true 
+    
+                        Colorpicker:SlideAlpha(Input)
+    
+                        if AlphaChanged then
+                            return
                         end
-                    end)
-                end
-
-                Items["Alpha"]:Connect("InputBegan", BeginAlphaSlide)
-
-                if Items["Checkers"] then
-                    Items["Checkers"]:Connect("InputBegan", BeginAlphaSlide)
-                end
-
-                if Items["AlphaDragger"] then
-                    Items["AlphaDragger"]:Connect("InputBegan", BeginAlphaSlide)
-                end
+    
+                        AlphaChanged = Input.Changed:Connect(function()
+                            if Input.UserInputState == Enum.UserInputState.End then
+                                SlidingAlpha = false
+                                Library:SetOpenFrameInteracting(false)
+    
+                                AlphaChanged:Disconnect()
+                                AlphaChanged = nil
+                            end
+                        end)
+                    end
+                end)
             end
 
             if Items["Alpha"] and Items["Palette"] and Items["Hue"] then 
@@ -2602,8 +2450,6 @@ end
 
             if Data.Default then
                 Colorpicker:Set(Data.Default, Data.Alpha)
-            else
-                Colorpicker:Update()
             end
     
             SetFlags[Colorpicker.Flag] = function(Value, Alpha)
@@ -2625,7 +2471,6 @@ end
 
                 Toggled = false,
                 Picking = false,
-                PressedInputs = {},
 
                 Items = { },
             }
@@ -2761,20 +2606,6 @@ end
 
             Items["KeybindWindow"]:VisibleCheck()
     
-            function Keybind:SetLinkedState(Bool)
-                Bool = Bool and true or false
-                Keybind.Toggled = Bool
-                Flags[Keybind.Flag] = {
-                    Mode = Keybind.Mode,
-                    Key = Keybind.Key,
-                    Toggled = Keybind.Toggled
-                }
-
-                if ListItem then
-                    ListItem:SetStatus(Keybind.Toggled)
-                end
-            end
-
             function Keybind:SetMode()
                 Flags[Keybind.Flag] = {
                     Mode = Keybind.Mode,
@@ -2832,10 +2663,6 @@ end
                     Key = Keybind.Key,
                     Toggled = Keybind.Toggled
                 }
-
-                if Keybind.LinkedToggle and Keybind.LinkedToggle.Value ~= Keybind.Toggled then
-                    Keybind.LinkedToggle:Set(Keybind.Toggled)
-                end
     
                 if Data.Callback then 
                     Library:SafeCall(Data.Callback, Keybind.Toggled)
@@ -2872,8 +2699,6 @@ end
 
                     if ListItem then
                         ListItem:Set(Keybind.Name, Keybind.Value)
-                        ListItem:SetBound(Keybind.Value ~= "None" and Keybind.Value ~= "")
-                        ListItem:SetStatus(Keybind.Toggled)
                     end
                 elseif type(Key) == "table" then
                     local RealKey = Key.Key == "Backspace" and "None" or Key.Key
@@ -2901,7 +2726,6 @@ end
 
                     if ListItem then
                         ListItem:Set(Keybind.Name, Keybind.Value)
-                        ListItem:SetBound(Keybind.Value ~= "None" and Keybind.Value ~= "")
                         ListItem:SetStatus(Keybind.Toggled)
                     end
                 elseif table.find({"Toggle", "Hold", "Always"}, Key) then
@@ -2916,12 +2740,6 @@ end
                 Keybind.Picking = false
             end
     
-            if Data.Default then
-                Keybind:Set(Data.Default)
-            elseif ListItem then
-                ListItem:SetBound(false)
-            end
-
             Items["KeyButton"]:Connect("MouseButton1Click", function()
                 Keybind.Picking = true 
     
@@ -2947,8 +2765,6 @@ end
     
                 if not GPE then
                     if tostring(Input.KeyCode) == Keybind.Key then
-                        if Keybind.PressedInputs[tostring(Input.KeyCode)] then return end
-                        Keybind.PressedInputs[tostring(Input.KeyCode)] = true
                         if Keybind.Mode == "Toggle" then 
                             Keybind:Press()
                         elseif Keybind.Mode == "Hold" then 
@@ -2957,8 +2773,6 @@ end
                             Keybind:Press(true)
                         end
                     elseif tostring(Input.UserInputType) == Keybind.Key then
-                        if Keybind.PressedInputs[tostring(Input.UserInputType)] then return end
-                        Keybind.PressedInputs[tostring(Input.UserInputType)] = true
                         if Keybind.Mode == "Toggle" then 
                             Keybind:Press()
                         elseif Keybind.Mode == "Hold" then 
@@ -2980,14 +2794,12 @@ end
                 end
     
                 if tostring(Input.KeyCode) == Keybind.Key then
-                    Keybind.PressedInputs[tostring(Input.KeyCode)] = nil
                     if Keybind.Mode == "Hold" then 
                         Keybind:Press(false)
                     elseif Keybind.Mode == "Always" then 
                         Keybind:Press(true)
                     end
                 elseif tostring(Input.UserInputType) == Keybind.Key then
-                    Keybind.PressedInputs[tostring(Input.UserInputType)] = nil
                     if Keybind.Mode == "Hold" then 
                         Keybind:Press(false)
                     elseif Keybind.Mode == "Always" then 
@@ -3015,24 +2827,6 @@ end
 
             return Keybind, Items 
         end
-
-Library.SetUIClickVolume = function(Self, Volume)
-    Volume = tonumber(Volume)
-    if not Volume then return end
-    Self.UIClickVolume = math.clamp(Volume, 0, 1)
-    if Self.UIClickSound then
-        Self.UIClickSound.Volume = Self.UIClickVolume
-    end
-end
-
-Library.SetMascotClickVolume = function(Self, Volume)
-    Volume = tonumber(Volume)
-    if not Volume then return end
-    Self.MascotClickVolume = math.clamp(Volume, 0, 1)
-    if Self.MascotClickSound then
-        Self.MascotClickSound.Volume = Self.MascotClickVolume
-    end
-end
 
 Library.Watermark = function(Self, Params)
             Params = Params or { }
@@ -3239,10 +3033,8 @@ Library.Watermark = function(Self, Params)
                 Items["Watermark"]:ConvertAnchor()
             end
 
-            local WatermarkVisibilityState = {}
-            local WatermarkScale = Library:Create("UIScale", {Name = "", Parent = Items["Watermark"].Instance, Scale = 1})
             function Watermark:SetVisibility(Bool)
-                Library:AnimatedVisibility(Items["Watermark"], Bool, WatermarkVisibilityState, WatermarkScale)
+                Items["Watermark"].Instance.Visible = Bool
             end
 
             function Watermark:SetText(Text)
@@ -3261,7 +3053,6 @@ Library.Watermark = function(Self, Params)
             
             local KeybindList = {
                 Name = Params.Name or Params.name or "Keybind List",
-                Icon = Params.Icon or Params.icon or "keyboard",
                 Keys = { },
                 Window = Self,
                 Items = { }
@@ -3293,15 +3084,6 @@ Library.Watermark = function(Self, Params)
                     BottomLeftRadius = UDim.new(0, 0)
                 })
                 
-                if KeybindList.Icon ~= "" then
-                    Items["Icon"] = Library:Create("ImageLabel", {
-                        Name = "\0", Parent = Items["Top"].Instance, BackgroundTransparency = 1,
-                        AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 10, 0.5, 0),
-                        Size = UDim2.new(0, 16, 0, 16), BorderSizePixel = 0, ImageColor3 = Library.Theme["Accent"]
-                    }):AddToTheme({ImageColor3 = "Accent"})
-                    Library:ApplyIcon(Items["Icon"].Instance, KeybindList.Icon)
-                end
-
                 Items["Title"] = Library:Create("TextLabel", {
                     Name = "\0",
                     FontFace = Library.Font,
@@ -3310,7 +3092,7 @@ Library.Watermark = function(Self, Params)
                     TextColor3 = Library.Theme["Text"],
                     Text = KeybindList.Name,
                     AnchorPoint = Vector2.new(0, 0.5),
-                    Position = UDim2.new(0, KeybindList.Icon ~= "" and 32 or 12, 0.5, 0),
+                    Position = UDim2.new(0, 12, 0.5, 0),
                     BackgroundTransparency = 1,
                     TextXAlignment = Enum.TextXAlignment.Left,
                     BorderSizePixel = 0,
@@ -3425,8 +3207,6 @@ Library.Watermark = function(Self, Params)
                     Name = Name or "Keybind",
                     Key = Key or "None",
                     Active = false,
-                    Bound = tostring(Key or "None") ~= "None" and tostring(Key or "None") ~= "",
-                    AnimationToken = 0,
                     Items = RowItems
                 }
 
@@ -3435,57 +3215,38 @@ Library.Watermark = function(Self, Params)
                         NewKey.Name = tostring(NewName)
                         RowItems["Text"].Instance.Text = NewKey.Name
                     end
+
                     if NewKeyValue ~= nil then
                         NewKey.Key = tostring(NewKeyValue)
                         RowItems["Key"].Instance.Text = string.upper(NewKey.Key)
-                        NewKey:SetBound(NewKey.Key ~= "None" and NewKey.Key ~= "")
                     end
-                end
-
-                function NewKey:SetBound(Bool)
-                    NewKey.Bound = Bool and true or false
-                    NewKey.AnimationToken += 1
-                    if not NewKey.Bound then
-                        RowItems["NewKey"].Instance.Visible = false
-                        RowItems["NewKey"].Instance.Size = UDim2.new(1, 0, 0, 0)
-                        RowItems["Text"].Instance.TextTransparency = 1
-                        RowItems["Key"].Instance.TextTransparency = 1
-                        return
-                    end
-                    RowItems["NewKey"].Instance.Visible = true
-                    RowItems["NewKey"].Instance.Size = UDim2.new(1, 0, 0, 0)
-                    RowItems["Text"].Instance.TextTransparency = 1
-                    RowItems["Key"].Instance.TextTransparency = 1
-                    RowItems["Text"].Instance.Position = UDim2.new(0, -SlideOffset, 0, RowHeight / 2)
-                    RowItems["Key"].Instance.Position = UDim2.new(1, SlideOffset, 0, RowHeight / 2)
-                    local Color = NewKey.Active and Library.Theme["Text"] or Library.Theme["Inactive Text"]
-                    RowItems["Text"]:Tween({TextColor3 = Color}, KeybindTweenInfo)
-                    RowItems["Key"]:Tween({TextColor3 = Color}, KeybindTweenInfo)
-                    RowItems["NewKey"]:Tween({Size = UDim2.new(1, 0, 0, RowSlot)}, KeybindTweenInfo)
-                    RowItems["Text"]:Tween({TextTransparency = 0, Position = UDim2.new(0, 0, 0, RowHeight / 2)}, KeybindTweenInfo)
-                    RowItems["Key"]:Tween({TextTransparency = 0, Position = UDim2.new(1, 0, 0, RowHeight / 2)}, KeybindTweenInfo)
                 end
 
                 function NewKey:SetStatus(Bool)
-                    NewKey.Active = Bool and true or false
-                    NewKey.AnimationToken += 1
-                    if not NewKey.Bound then return end
-                    local Token = NewKey.AnimationToken
-                    local Color = NewKey.Active and Library.Theme["Text"] or Library.Theme["Inactive Text"]
-                    RowItems["NewKey"].Instance.Visible = true
-                    RowItems["Text"]:Tween({TextColor3 = Color}, KeybindTweenInfo)
-                    RowItems["Key"]:Tween({TextColor3 = Color}, KeybindTweenInfo)
-                    RowItems["NewKey"]:Tween({Size = UDim2.new(1, 0, 0, RowSlot)}, KeybindTweenInfo)
-                    RowItems["Text"]:Tween({TextTransparency = 0, Position = UDim2.new(0, 0, 0, RowHeight / 2)}, KeybindTweenInfo)
-                    RowItems["Key"]:Tween({TextTransparency = 0, Position = UDim2.new(1, 0, 0, RowHeight / 2)}, KeybindTweenInfo)
-                    task.delay(KeybindTweenInfo.Time + 0.03, function()
-                        if Token ~= NewKey.AnimationToken or not NewKey.Bound or not RowItems["NewKey"].Instance.Parent then return end
-                        RowItems["Text"].Instance.TextColor3 = NewKey.Active and Library.Theme["Text"] or Library.Theme["Inactive Text"]
-                        RowItems["Key"].Instance.TextColor3 = NewKey.Active and Library.Theme["Text"] or Library.Theme["Inactive Text"]
-                    end)
-                end
+                    if NewKey.Active == Bool then
+                        return
+                    end
 
-                NewKey:SetBound(NewKey.Bound)
+                    NewKey.Active = Bool
+
+                    if Bool then
+                        RowItems["NewKey"].Instance.Visible = true
+                        RowItems["NewKey"]:Tween({Size = UDim2.new(1, 0, 0, RowSlot)}, KeybindTweenInfo)
+
+                        RowItems["Text"]:Tween({TextTransparency = 0, Position = UDim2.new(0, 0, 0, RowHeight / 2)}, KeybindTweenInfo)
+                        RowItems["Key"]:Tween({TextTransparency = 0, Position = UDim2.new(1, 0, 0, RowHeight / 2)}, KeybindTweenInfo)
+                    else
+                        RowItems["NewKey"]:Tween({Size = UDim2.new(1, 0, 0, 0)}, KeybindTweenInfo)
+                        RowItems["Text"]:Tween({TextTransparency = 1, Position = UDim2.new(0, -SlideOffset, 0, RowHeight / 2)}, KeybindTweenInfo)
+                        RowItems["Key"]:Tween({TextTransparency = 1, Position = UDim2.new(1, SlideOffset, 0, RowHeight / 2)}, KeybindTweenInfo)
+
+                        task.delay(Library.Animation.Time, function()
+                            if not NewKey.Active and RowItems["NewKey"].Instance.Parent then
+                                RowItems["NewKey"].Instance.Visible = false
+                            end
+                        end)
+                    end
+                end
 
                 function NewKey:Remove()
                     local Index = table.find(KeybindList.Keys, NewKey)
@@ -3501,10 +3262,8 @@ Library.Watermark = function(Self, Params)
                 return NewKey
             end
 
-            local KeybindListVisibilityState = {}
-            local KeybindListScale = Library:Create("UIScale", {Name = "", Parent = Items["KeybindList"].Instance, Scale = 1})
             function KeybindList:SetVisibility(Bool)
-                Library:AnimatedVisibility(Items["KeybindList"], Bool, KeybindListVisibilityState, KeybindListScale)
+                Items["KeybindList"].Instance.Visible = Bool
             end
 
             function KeybindList:SetText(Text)
@@ -3707,7 +3466,6 @@ Library.Watermark = function(Self, Params)
 
             local ESPPreview = {
                 Name = Params.Name or Params.name or "ESP Preview",
-                Icon = Params.Icon or Params.icon or "eye",
 
                 Window = Self,
                 Player = nil,
@@ -3754,15 +3512,6 @@ Library.Watermark = function(Self, Params)
                     BottomLeftRadius = UDim.new(0, 0)
                 })
                 
-                if ESPPreview.Icon ~= "" then
-                    Items["Icon"] = Library:Create("ImageLabel", {
-                        Name = "\0", Parent = Items["Top"].Instance, BackgroundTransparency = 1,
-                        AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 10, 0.5, 0),
-                        Size = UDim2.new(0, 16, 0, 16), BorderSizePixel = 0, ImageColor3 = Library.Theme["Accent"]
-                    }):AddToTheme({ImageColor3 = "Accent"})
-                    Library:ApplyIcon(Items["Icon"].Instance, ESPPreview.Icon)
-                end
-
                 Items["Text"] = Library:Create("TextLabel", {
                     Name = "\0",
                     FontFace = Library.Font,
@@ -3771,7 +3520,7 @@ Library.Watermark = function(Self, Params)
                     TextColor3 = Library.Theme["Text"],
                     Text = ESPPreview.Name,
                     AnchorPoint = Vector2.new(0, 0.5),
-                    Position = UDim2.new(0, ESPPreview.Icon ~= "" and 32 or 12, 0.5, 0),
+                    Position = UDim2.new(0, 12, 0.5, 0),
                     BackgroundTransparency = 1,
                     TextXAlignment = Enum.TextXAlignment.Left,
                     BorderSizePixel = 0,
@@ -3844,7 +3593,6 @@ Library.Watermark = function(Self, Params)
             ViewportCamera.Parent = Viewport.Instance
 
             local ViewportModel
-            local ESPVisibilityState = {}
             local Zoom = 6
             local MinZoom = 2
             local MaxZoom = 20
@@ -3864,11 +3612,13 @@ Library.Watermark = function(Self, Params)
             local VelocityPower = 0.01
             local SpinSpeed = math.rad(35)
 
+            -- Направление перетаскивания. Если вдруг нужно развернуть ось: поставь -1
+            local DragX = 1
+            local DragY = 1
+
             local UpdateCamera = function()
                 Library:Tween({CFrame = CFrame.new(Vector3.new(0, 2, Zoom), Vector3.new(0, 1, 0))}, nil, ViewportCamera)
             end
-
-            ESPVisibilityState.Visible = true
 
             local SetupModel = function(Character)
                 if ViewportModel then
@@ -3888,9 +3638,7 @@ Library.Watermark = function(Self, Params)
                     ViewportModel.PrimaryPart.Anchored = true
                 end
 
-                if ESPVisibilityState.Visible ~= false then
-                    ViewportModel.Parent = Viewport.Instance
-                end
+                ViewportModel.Parent = Viewport.Instance
 
                 for _, Value in ViewportModel:GetDescendants() do
                     if Value:IsA("LocalScript") or Value:IsA("Script") then
@@ -3954,11 +3702,11 @@ Library.Watermark = function(Self, Params)
                     local DeltaX = RotationDelta.X
                     local DeltaY = RotationDelta.Y
 
-                    Yaw = Yaw + math.rad(DeltaX * Sensitivity)
-                    Pitch = ClampPitch(Pitch + math.rad(DeltaY * Sensitivity))
+                    Yaw = Yaw + math.rad(DeltaX * Sensitivity * DragX)
+                    Pitch = ClampPitch(Pitch + math.rad(DeltaY * Sensitivity * DragY))
 
-                    YawVelocity = DeltaX * VelocityPower
-                    PitchVelocity = DeltaY * VelocityPower
+                    YawVelocity = DeltaX * VelocityPower * DragX
+                    PitchVelocity = DeltaY * VelocityPower * DragY
 
                     LastPosition = Input.Position
                 end
@@ -4011,23 +3759,8 @@ Library.Watermark = function(Self, Params)
                 end
             })
 
-            local ESPScale = Library:Create("UIScale", {Name = "", Parent = Items["ESPPreview"].Instance, Scale = 1})
             function ESPPreview:SetVisibility(Bool)
-                Bool = Bool and true or false
-                ESPVisibilityState.Visible = Bool
-                if Bool then
-                    -- Re-parent the cloned character only while the preview is enabled.
-                    if ViewportModel and ViewportModel.Parent ~= Viewport.Instance then
-                        ViewportModel.Parent = Viewport.Instance
-                    end
-                else
-                    -- ViewportModel is a real Instance; hiding the ViewportFrame alone can
-                    -- leave the clone rendered by the viewport camera. Remove it as well.
-                    if ViewportModel and ViewportModel.Parent == Viewport.Instance then
-                        ViewportModel.Parent = nil
-                    end
-                end
-                Library:AnimatedVisibility(Items["ESPPreview"], Bool, ESPVisibilityState, ESPScale)
+                Items["ESPPreview"].Instance.Visible = Bool
             end
 
             function ESPPreview:SetText(Text)
@@ -4219,7 +3952,6 @@ Library.Watermark = function(Self, Params)
             end)
 
             Window:Center()
-            Library.ActiveWindow = Window
             return setmetatable(Window, Library)
         end
 
@@ -4230,51 +3962,16 @@ Library.Watermark = function(Self, Params)
         --   Offset     - X: отступ от левого края окна, Y: насколько низ картинки заходит ВНИЗ на окно (минус = выше)
         --   PressScale - во сколько раз меняется ширина/высота при нажатии (по умолчанию 1.05 / 0.88)
         --   Callback   - функция при клике
-        -- PNG и JPG поддерживаются; JPG просто не имеет прозрачности.
-        -- Mascot registry.
-        -- Add mascots with:
-        -- Mascots = {
-        --     mimi = "https://.../mimi.png",
-        --     kitty = { Url = "https://.../kitty.jpg", Size = 140, Offset = Vector2.new(10, 20), ZIndex = 3, ClickSound = "123" },
-        -- }
-        -- A mascot does NOT need to be hard-coded into the library. Example/config only provides the registry.
+        -- Лучше PNG с прозрачным фоном: JPG прозрачность не поддерживает.
         Library.Mascot = function(Self, Params)
             Params = Params or { }
 
-            local Mascots = Params.Mascots or Params.mascots or { }
-            local DefaultMascot = Params.DefaultMascot or Params.defaultMascot or Params.Mascot or Params.mascot
-
-            -- If only Url was supplied, turn it into a one-entry registry for backwards compatibility.
-            if next(Mascots) == nil and (Params.Url or Params.url) then
-                Mascots = {
-                    mascot = {
-                        Url = Params.Url or Params.url,
-                        Size = Params.Size or Params.size,
-                        Offset = Params.Offset or Params.offset,
-                        ZIndex = Params.ZIndex or Params.zindex,
-                        ClickSound = Params.ClickSound or Params.clickSound
-                    }
-                }
-                DefaultMascot = DefaultMascot or "mascot"
-            end
-
-            if not DefaultMascot then
-                for Name in Mascots do
-                    DefaultMascot = Name
-                    break
-                end
-            end
-
             local Mascot = {
-                Url = "",
-                Rotation = Params.Rotation or Params.rotation or 0,
+                Url = Params.Url or Params.url or "",
                 Size = Params.Size or Params.size or Vector2.new(120, 120),
-                Offset = Params.Offset or Params.offset or Vector2.new(-222, -333),
-                ZIndex = Params.ZIndex or Params.zindex or 3,
+                Offset = Params.Offset or Params.offset or Vector2.new(6, 12),
                 PressScale = Params.PressScale or Params.pressscale or Vector2.new(1.05, 0.88),
                 Callback = Params.Callback or Params.callback or function() end,
-                Mascots = Mascots,
-                CurrentMascot = DefaultMascot,
 
                 Window = Self,
                 Visible = Params.Visible ~= false,
@@ -4294,10 +3991,9 @@ Library.Watermark = function(Self, Params)
                 Items["Image"] = Library:Create("ImageButton", {
                     Name = "\0",
                     Parent = Self.Items["MainFrame"].Instance,
-                    AnchorPoint = Vector2.new(0.5, 0.5),
-                    Position = UDim2.new(0.5, Mascot.Offset.X, 0.5, Mascot.Offset.Y),
+                    AnchorPoint = Vector2.new(0.5, 1),
+                    Position = UDim2.new(0, Mascot.Offset.X + Mascot.Size.X / 2, 0, Mascot.Offset.Y),
                     Size = BaseSize,
-                    Rotation = Mascot.Rotation,
                     BackgroundTransparency = 1,
                     BorderSizePixel = 0,
                     AutoButtonColor = false,
@@ -4305,7 +4001,7 @@ Library.Watermark = function(Self, Params)
                     Image = "",
                     ImageTransparency = 1,
                     Visible = false,
-                    ZIndex = Mascot.ZIndex
+                    ZIndex = 3
                 })
 
                 Items["Scale"] = Library:Create("UIScale", {
@@ -4321,6 +4017,7 @@ Library.Watermark = function(Self, Params)
 
             local function Show()
                 Token += 1
+
                 Items["Image"].Instance.Visible = true
                 Items["Image"].Instance.Active = true
                 Items["Scale"]:Tween({Scale = 1}, ShowInfo)
@@ -4329,10 +4026,13 @@ Library.Watermark = function(Self, Params)
 
             local function Hide()
                 Token += 1
+
                 local Mine = Token
+
                 Items["Image"].Instance.Active = false
                 Items["Scale"]:Tween({Scale = 0.85}, HideInfo)
                 Items["Image"]:Tween({ImageTransparency = 1}, HideInfo)
+
                 task.delay(HideInfo.Time + 0.05, function()
                     if Library and Token == Mine then
                         Items["Image"].Instance.Visible = false
@@ -4342,21 +4042,41 @@ Library.Watermark = function(Self, Params)
 
             function Mascot:SetVisibility(Bool)
                 Bool = Bool and true or false
+
+                if Mascot.Visible == Bool then
+                    return
+                end
+
                 Mascot.Visible = Bool
+
                 if not Mascot.Loaded then
                     return
                 end
-                if Bool then Show() else Hide() end
+
+                if Bool then
+                    Show()
+                else
+                    Hide()
+                end
             end
 
+            -- Сжатие при нажатии
             local Pressed = false
+
             local function Squish()
-                if Pressed then return end
+                if Pressed then
+                    return
+                end
+
                 Pressed = true
                 Items["Image"]:Tween({Size = PressedSize}, PressInfo)
             end
+
             local function Release()
-                if not Pressed then return end
+                if not Pressed then
+                    return
+                end
+
                 Pressed = false
                 Items["Image"]:Tween({Size = BaseSize}, ReleaseInfo)
             end
@@ -4365,236 +4085,173 @@ Library.Watermark = function(Self, Params)
             Items["Image"]:Connect("MouseButton1Up", Release)
             Items["Image"]:Connect("MouseLeave", Release)
             Items["Image"]:Connect("MouseButton1Click", function()
-                Library:PlayMascotClickSound()
                 Library:SafeCall(Mascot.Callback)
             end)
 
+            -- Загрузка картинки (в фоне, чтобы не тормозить создание окна)
             local function Fail(Text)
                 warn("[Library] Mascot: " .. Text)
+                pcall(function()
+                    Library:Notification({
+                        Name = "Mascot",
+                        Description = Text,
+                        Duration = 8,
+                        Color = Color3.fromRGB(255, 80, 80)
+                    })
+                end)
             end
 
-            local function LoadImage(TargetUrl)
-                local Url = tostring(TargetUrl or "")
-                if Url == "" then return nil end
+            local function JpegSize(Data)
+                local Pos = 3
+
+                while Pos < #Data - 9 do
+                    if Data:byte(Pos) ~= 255 then
+                        Pos += 1
+                        continue
+                    end
+
+                    local Marker = Data:byte(Pos + 1)
+
+                    if Marker == 255 then
+                        Pos += 1
+                        continue
+                    end
+
+                    if Marker >= 0xC0 and Marker <= 0xCF and Marker ~= 0xC4 and Marker ~= 0xC8 and Marker ~= 0xCC then
+                        local Height = Data:byte(Pos + 5) * 256 + Data:byte(Pos + 6)
+                        local Width = Data:byte(Pos + 7) * 256 + Data:byte(Pos + 8)
+                        return Width, Height
+                    end
+
+                    Pos += 2 + (Data:byte(Pos + 2) * 256 + Data:byte(Pos + 3))
+                end
+
+                return nil
+            end
+
+            local ImageInfo = ""
+
+            local function LoadImage()
+                local Url = tostring(Mascot.Url)
+
+                if Url == "" then
+                    return nil
+                end
 
                 if Url:match("^rbxasset") or Url:match("^rbxthumb") then
                     return Url
                 end
 
                 local GetAsset = getcustomasset or getsynasset
+
                 if not (writefile and GetAsset and isfile) then
-                    Fail("executor doesn't support writefile + getcustomasset/getsynasset")
+                    Fail("executor doesn't support writefile/getcustomasset")
                     return nil
                 end
 
-                if isfile(Url) then
-                    local AssetOk, Asset = pcall(GetAsset, Url)
-                    if AssetOk and Asset then return Asset end
+                local Separator = Url:find("?", 1, true) and "&" or "?"
+                local Success, Data = pcall(game.HttpGet, game, Url .. Separator .. "v=" .. os.time())
+
+                if not Success or type(Data) ~= "string" then
+                    Fail("download failed: " .. tostring(Data):sub(1, 100))
+                    return nil
                 end
 
-                local function Download(TargetUrl)
-                    local Separator = TargetUrl:find("?", 1, true) and "&" or "?"
-                    local Success, Data = pcall(game.HttpGet, game, TargetUrl .. Separator .. "v=" .. os.time())
-                    if Success and type(Data) == "string" and #Data >= 16 then
-                        return Data
+                if #Data < 100 or Data:sub(1, 3) == "404" or Data:sub(1, 1) == "<" then
+                    Fail("link returned " .. #Data .. " bytes (" .. Data:sub(1, 40) .. "). Check that the file exists in the repo")
+                    return nil
+                end
+
+                local IsPng = Data:sub(2, 4) == "PNG"
+                local Extension = IsPng and "png" or "jpg"
+
+                if not IsPng then
+                    local Ok, Width, Height = pcall(JpegSize, Data)
+                    if Ok and Width then
+                        ImageInfo = Width .. "x" .. Height
                     end
-
-                    if request then
-                        local Ok, Response = pcall(request, {Url = TargetUrl, Method = "GET"})
-                        if Ok and Response and tonumber(Response.StatusCode or 0) >= 200 and tonumber(Response.StatusCode or 0) < 300 and type(Response.Body) == "string" then
-                            return Response.Body
-                        end
-                    end
-                    return nil
-                end
-
-                local Data = Download(Url)
-                if not Data and Url:lower():match("%.jpe?g$") then
-                    local PngUrl = Url:gsub("%.[jJ][pP][eE][gG]$", ".png"):gsub("%.[jJ][pP][gG]$", ".png")
-                    Data = Download(PngUrl)
-                end
-
-                if not Data then
-                    Fail("failed to download image: " .. Url)
-                    return nil
-                end
-
-                local IsPng = Data:sub(1, 8) == "\137PNG\r\n\26\n"
-                local IsJpg = Data:byte(1) == 255 and Data:byte(2) == 216
-                if not IsPng and not IsJpg then
-                    Fail("file is not a PNG/JPG: " .. Url)
-                    return nil
                 end
 
                 local Folder = Library.Directory .. Library.Folders.Assets
+
                 pcall(function()
-                    if isfolder and not isfolder(Folder) then makefolder(Folder) end
+                    if isfolder and not isfolder(Folder) then
+                        makefolder(Folder)
+                    end
                 end)
 
-                local SafeName = Url:match("([^/?#]+)%.[^/?#]+$") or (Mascot.CurrentMascot or "mascot")
-                SafeName = SafeName:gsub("[^%w_%-]", "_")
-                local Path = Folder .. "/mascot_" .. SafeName .. (IsPng and ".png" or ".jpg")
+                -- Имя файла зависит от размера данных: новая картинка = новый файл (старый кеш не мешает)
+                local Path = Folder .. "/mascot_" .. #Data .. "." .. Extension
+
+                -- Удаляем старые mascot_* файлы
+                pcall(function()
+                    if listfiles and delfile then
+                        for _, File in listfiles(Folder) do
+                            local Name = (tostring(File):gsub("\\", "/"))
+
+                            if Name:find("/mascot_", 1, true) and Name:sub(-#Path) ~= Path then
+                                delfile(File)
+                            end
+                        end
+                    end
+                end)
+
                 pcall(writefile, Path, Data)
 
                 if not isfile(Path) then
-                    Fail("failed to save image: " .. Path)
+                    Fail("failed to save image to " .. Path)
                     return nil
                 end
 
                 local AssetOk, Asset = pcall(GetAsset, Path)
+
                 if not AssetOk or not Asset then
-                    Fail("failed to create custom asset: " .. Path)
+                    Fail("getcustomasset failed: " .. tostring(Asset):sub(1, 100))
                     return nil
                 end
+
                 return Asset
             end
 
-            function Mascot:GetNames()
-                local Names = { }
-                for Name in Mascot.Mascots do
-                    table.insert(Names, tostring(Name))
-                end
-                table.sort(Names)
-                return Names
-            end
+            task.spawn(function()
+                local Asset = LoadImage()
 
-            function Mascot:Add(Name, Data)
-                if not Name or Name == "" then return false end
-                if type(Data) == "string" then
-                    Data = {Url = Data}
-                elseif type(Data) ~= "table" then
-                    return false
-                end
-                Mascot.Mascots[tostring(Name)] = Data
-                return true
-            end
-
-            function Mascot:GetCenteredPosition()
-                return Mascot.Offset.X, Mascot.Offset.Y
-            end
-
-            function Mascot:SetCenteredPosition(X, Y)
-                X = tonumber(X) or 0
-                Y = tonumber(Y) or 0
-
-                Mascot.Offset = Vector2.new(X, Y)
-                Items["Image"].Instance.Position = UDim2.new(0.5, X, 0.5, Y)
-                Items["Image"].Instance.ZIndex = Mascot.ZIndex
-            end
-
-            function Mascot:SetPosition(X, Y, Z)
-                local NewX = tonumber(X)
-                local NewY = tonumber(Y)
-                local NewZ = tonumber(Z)
-
-                if NewX and NewX == NewX and NewX ~= math.huge and NewX ~= -math.huge then
-                    Mascot.Offset = Vector2.new(NewX, Mascot.Offset.Y)
-                end
-                if NewY and NewY == NewY and NewY ~= math.huge and NewY ~= -math.huge then
-                    Mascot.Offset = Vector2.new(Mascot.Offset.X, NewY)
-                end
-                if NewZ and NewZ == NewZ and NewZ ~= math.huge and NewZ ~= -math.huge then
-                    Mascot.ZIndex = math.clamp(NewZ, 1, 100)
-                end
-
-                -- Mascot coordinates are relative to the center of the GUI:
-                -- 0,0 = center, negative X = left, positive X = right,
-                -- negative Y = up, positive Y = down.
-                Items["Image"].Instance.Position = UDim2.new(0.5, Mascot.Offset.X, 0.5, Mascot.Offset.Y)
-                Items["Image"].Instance.ZIndex = Mascot.ZIndex
-
-                if Mascot.Visible and Mascot.Loaded then
-                    Items["Image"].Instance.Visible = true
-                    Items["Image"].Instance.Active = true
-                    Items["Image"].Instance.ImageTransparency = 0
-                end
-            end
-
-            function Mascot:SetSize(Value)
-                local Number = math.max(1, tonumber(Value) or Mascot.Size.X)
-                Mascot.Size = Vector2.new(Number, Number)
-                BaseSize = UDim2.new(0, Number, 0, Number)
-                PressedSize = UDim2.new(0, Number * Mascot.PressScale.X, 0, Number * Mascot.PressScale.Y)
-                Items["Image"].Instance.Size = BaseSize
-                Mascot:SetPosition(Mascot.Offset.X, Mascot.Offset.Y, Mascot.ZIndex)
-                if Mascot.Visible and Mascot.Loaded then
-                    Items["Image"].Instance.Visible = true
-                    Items["Image"].Instance.Active = true
-                    Items["Image"].Instance.ImageTransparency = 0
-                end
-            end
-
-            function Mascot:SetRotation(Value)
-                local Number = tonumber(Value)
-                if not Number or Number ~= Number or Number == math.huge or Number == -math.huge then
+                if not Library or not Asset or not Items["Image"].Instance.Parent then
                     return
                 end
-                Mascot.Rotation = math.clamp(Number, -180, 180)
-                Items["Image"].Instance.Rotation = Mascot.Rotation
-            end
 
-            function Mascot:SetClickSoundVolume(Value)
-                local Number = tonumber(Value)
-                if not Number then return end
-                Mascot.ClickSoundVolume = math.clamp(Number, 0, 1)
-                if Library.MascotClickSound then
-                    Library.MascotClickSound.Volume = Mascot.ClickSoundVolume
+                local Image = Items["Image"].Instance
+
+                -- Картинка должна быть видимой (прозрачность 1), чтобы Roblox её загрузил
+                Image.Visible = true
+                Image.Image = Asset
+
+                local Waited = 0
+                while Library and Image.Parent and not Image.IsLoaded and Waited < 8 do
+                    task.wait(0.1)
+                    Waited += 0.1
                 end
-            end
 
-            function Mascot:SetClickSound(SoundId)
-                Mascot.ClickSound = SoundId
-                return Library:SetMascotClickSound(SoundId)
-            end
+                if not Library or not Image.Parent then
+                    return
+                end
 
-            function Mascot:SetUrl(Url)
-                Mascot.Url = tostring(Url or "")
-                Mascot.Loaded = false
+                if not Image.IsLoaded then
+                    Image.Visible = false
+                    Fail("Roblox could not load the image" .. (ImageInfo ~= "" and (" (" .. ImageInfo .. ")") or "") .. ". Try a PNG up to 1024x1024")
+                    return
+                end
 
-                task.spawn(function()
-                    local Asset = LoadImage(Mascot.Url)
-                    if not Library or not Asset or not Items["Image"].Instance.Parent then
-                        return
-                    end
+                Mascot.Loaded = true
 
-                    Items["Image"].Instance.Image = Asset
-                    Mascot.Loaded = true
-                    if Mascot.Visible then
-                        Show()
-                    end
-                end)
-            end
-
-            function Mascot:SetMascot(Name)
-                local Data = Mascot.Mascots and Mascot.Mascots[Name]
-                if type(Data) == "string" then Data = {Url = Data} end
-                if type(Data) ~= "table" or not Data.Url then return false end
-
-                Mascot.CurrentMascot = Name
-                Mascot:SetSize(Data.Size or Mascot.Size.X)
-                Mascot:SetRotation(Data.Rotation or Data.rotation or Mascot.Rotation or 0)
-                local Offset = Data.Offset or Mascot.Offset
-                Mascot:SetPosition(Offset.X, Offset.Y, Data.ZIndex or Mascot.ZIndex)
-                Mascot:SetClickSound(Data.ClickSound or Params.ClickSound or "102774986031312")
-                Mascot:SetClickSoundVolume(Data.ClickSoundVolume or Data.clickSoundVolume or Mascot.ClickSoundVolume or Library.MascotClickVolume or 0.8)
-                Mascot:SetUrl(Data.Url)
-                return true
-            end
-
-            if Mascot.CurrentMascot and Mascot.Mascots[Mascot.CurrentMascot] then
-                task.spawn(function()
-                    Mascot:SetMascot(Mascot.CurrentMascot)
-                end)
-            end
-
-            -- Keep mascot coordinates valid when the menu is resized.
-            Library:Connect(Self.Items["MainFrame"].Instance:GetPropertyChangedSignal("AbsoluteSize"), function()
-                Mascot:SetPosition(Mascot.Offset.X, Mascot.Offset.Y, Mascot.ZIndex)
+                if Mascot.Visible then
+                    Show()
+                else
+                    Image.Visible = false
+                end
             end)
 
             Self.Mascot = Mascot
-            Mascot:SetPosition(Mascot.Offset.X, Mascot.Offset.Y, Mascot.ZIndex)
-            Mascot:SetRotation(Mascot.Rotation)
             return setmetatable(Mascot, Library)
         end
 
@@ -4931,7 +4588,7 @@ Library.Section = function(Self, Params)
     local Section = {
         Name = Params.Name or Params.name or "Section",
         Side = Params.Side or Params.side or 1,
-        Icon = Params.Icon or Params.icon or "folder",
+        Icon = Params.Icon or Params.icon or "",
 
         Window = Self.Window,
         Page = Self,
@@ -5217,13 +4874,6 @@ end
                 end
 
                 Flags[Toggle.Flag] = Bool
-
-                -- Keep a Toggle's optional Keybind and the Keybind List in sync
-                -- even when the toggle is changed from the menu.
-                if Toggle.LinkedKeybind and Toggle.LinkedKeybind.SetLinkedState then
-                    Toggle.LinkedKeybind:SetLinkedState(Bool)
-                end
-
                 Library:SafeCall(Toggle.Callback, Bool)
             end
 
@@ -5235,45 +4885,43 @@ end
                 Items["Text"].Instance.Text = tostring(Text)
             end
 
-            function Toggle:Colorpicker(Data, Data2, Data3)
-                local Inputs
-                if Data2 ~= nil or Data3 ~= nil then
-                    Inputs = {Data, Data2, Data3}
-                elseif type(Data) == "table" and Data[1] ~= nil then
-                    Inputs = Data
-                else
-                    Inputs = {Data}
+            function Toggle:Colorpicker(Data)
+                Data = Data or { }
+
+                -- До 3 колорпикеров на один элемент
+                Toggle.ColorpickerCount = (Toggle.ColorpickerCount or 0) + 1
+
+                if Toggle.ColorpickerCount > 3 then
+                    Toggle.ColorpickerCount = 3
+                    warn("[Library] Max 3 colorpickers per element")
+                    return nil
                 end
 
-                local Result = { }
-                for Index = 1, math.min(#Inputs, 3) do
-                    local ItemData = Inputs[Index] or { }
-                    local Colorpicker = {
-                        Flag = ItemData.Flag or ItemData.flag or (ItemData.Name or ItemData.name or (Toggle.Name .. "/Color" .. Index)),
-                        Default = ItemData.Default or ItemData.default or Color3.fromRGB(255, 255, 255),
-                        Callback = ItemData.Callback or ItemData.callback or function() end,
-                        Alpha = ItemData.Alpha or ItemData.alpha or 0,
+                local ColorpickerIndex = Toggle.ColorpickerCount
 
-                        Window = Toggle.Window,
-                        Page = Toggle.Page,
-                        Section = Toggle.Section,
-                    }
+                local Colorpicker = {
+                    -- Если Flag не указан: у 2-го и 3-го колорпикера к флагу добавляется номер, чтобы флаги не совпадали
+                    Flag = Data.Flag or Data.flag or ((Data.Name or Data.name or Toggle.Name) .. (ColorpickerIndex > 1 and (" " .. ColorpickerIndex) or "")),
+                    Default = Data.Default or Data.default or Color3.fromRGB(255, 255, 255),
+                    Callback = Data.Callback or Data.callback or function() end,
+                    Alpha = Data.Alpha or Data.alpha or 0,
 
-                    local NewColorpicker = Library:CreateColorpicker({
-                        Parent = Items["SubElements"],
-                        Page = Colorpicker.Page,
-                        Section = Colorpicker.Section,
-                        Flag = Colorpicker.Flag,
-                        Default = Colorpicker.Default,
-                        Callback = Colorpicker.Callback,
-                        Alpha = Colorpicker.Alpha,
-                        Clipboard = ItemData.Clipboard,
-                    })
+                    Window = Toggle.Window,
+                    Page = Toggle.Page,
+                    Section = Toggle.Section,
+                }
 
-                    table.insert(Result, NewColorpicker)
-                end
+                local NewColorpicker, ColorpickerItems = Library:CreateColorpicker({
+                    Parent = Items["SubElements"],
+                    Page = Colorpicker.Page,
+                    Section = Colorpicker.Section,
+                    Flag = Colorpicker.Flag,
+                    Default = Colorpicker.Default,
+                    Callback = Colorpicker.Callback,
+                    Alpha = Colorpicker.Alpha
+                })
 
-                return #Result == 1 and Result[1] or Result
+                return NewColorpicker
             end
 
             function Toggle:Keybind(Data)
@@ -5301,12 +4949,6 @@ end
                     Mode = Keybind.Mode,
                     Callback = Keybind.Callback
                 })
-
-                Toggle.LinkedKeybind = NewKeybind
-                NewKeybind.LinkedToggle = Toggle
-                if NewKeybind.SetLinkedState then
-                    NewKeybind:SetLinkedState(Toggle.Value)
-                end
 
                 return NewKeybind
             end
@@ -5745,24 +5387,20 @@ end
                 }
                 })
                 
-                Items["Value"] = Library:Create("TextBox", {
+                Items["Value"] = Library:Create("TextLabel", {
                     Name = "\0",
                     FontFace = Library.Font,
                     TextSize = Library.FontSize,
                     Parent = Items["Slider"].Instance,
                     TextColor3 = Library.Theme["Inactive Text"],
-                    Text = "0",
-                    PlaceholderText = "0",
-                    PlaceholderColor3 = Library.Theme["Inactive Text"],
+                    Text = "%90 gay",
                     AnchorPoint = Vector2.new(1, 0),
                     Position = UDim2.new(1, 0, 0, 0),
-                    Size = UDim2.new(0, 78, 0, 18),
                     BackgroundTransparency = 1,
-                    TextXAlignment = Enum.TextXAlignment.Right,
+                    TextXAlignment = Enum.TextXAlignment.Left,
                     BorderSizePixel = 0,
-                    ClearTextOnFocus = false,
-                    MultiLine = false
-                }):AddToTheme({TextColor3 = 'Inactive Text', PlaceholderColor3 = 'Inactive Text'})
+                    AutomaticSize = Enum.AutomaticSize.XY
+                }):AddToTheme({TextColor3 = 'Inactive Text'})                
 
                 Slider.Items = Items 
             end
@@ -5807,23 +5445,12 @@ end
             end
 
             function Slider:Set(Value)
-                Value = tonumber(Value)
-                if not Value or Value ~= Value or Value == math.huge or Value == -math.huge then
-                    Value = Slider.Value
-                end
+                Slider.Value = Library:Round(math.clamp(Value, Slider.Min, Slider.Max), Slider.Decimals)
 
-                local Range = Slider.Max - Slider.Min
-                if Range == 0 then
-                    Slider.Value = Slider.Min
-                else
-                    Slider.Value = Library:Round(math.clamp(Value, Slider.Min, Slider.Max), Slider.Decimals)
-                end
-
-                local FillPercent = Range == 0 and 0 or math.clamp((Slider.Value - Slider.Min) / Range, 0, 1)
-                Items["Accent"]:Tween({Size = UDim2.new(FillPercent, 0, 1, 0)}, TweenInfo.new(Library.Animation.Time, Enum.EasingStyle.Quart, Enum.EasingDirection.Out))
+                Items["Accent"]:Tween({Size = UDim2.new((Slider.Value - Slider.Min) / (Slider.Max - Slider.Min), 0, 1, 0)}, TweenInfo.new(Library.Animation.Time, Enum.EasingStyle.Quart, Enum.EasingDirection.Out))
                 Slider:AnimateValue(Slider.Value)
 
-                local Percent = Range == 0 and 0 or math.clamp((Slider.Value - Slider.Min) / Range, 0, 1)
+                local Percent = math.clamp((Slider.Value - Slider.Min) / (Slider.Max - Slider.Min), 0, 1)      
                 Items["DraggerOutline"]:Tween({Position = UDim2.new(Percent, (12 / 2) - (Percent * 12), 0.5, 0)}, TweenInfo.new(Library.Animation.Time, Enum.EasingStyle.Quart, Enum.EasingDirection.Out))
 
                 if Slider.Value == Slider.Min then 
@@ -5841,12 +5468,7 @@ end
             end
 
             function Slider:GetSize(Input)
-                local Width = Items["RealSlider"].Instance.AbsoluteSize.X
-                if Width <= 0 then
-                    return Slider.Value
-                end
-
-                local SizeX = math.clamp((Input.Position.X - Items["RealSlider"].Instance.AbsolutePosition.X) / Width, 0, 1)
+                local SizeX = (Input.Position.X - Items["RealSlider"].Instance.AbsolutePosition.X) / Items["RealSlider"].Instance.AbsoluteSize.X
                 local Value = ((Slider.Max - Slider.Min) * SizeX) + Slider.Min
 
                 return Value
@@ -5855,27 +5477,6 @@ end
             function Slider:SetText(Text)
                 Items["Text"].Instance.Text = tostring(Text)
             end
-
-            local function CommitSliderText()
-                local Text = tostring(Items["Value"].Instance.Text or "")
-                if Slider.Suffix ~= "" then
-                    Text = Text:gsub("%s*" .. Slider.Suffix .. "%s*$", "")
-                end
-                local Number = tonumber(Text)
-                if Number == nil or Number ~= Number or Number == math.huge or Number == -math.huge then
-                    Slider:AnimateValue(Slider.Value)
-                    return
-                end
-                Slider:Set(Number)
-            end
-
-            Items["Value"]:Connect("Focused", function()
-                Items["Value"].Instance.CursorPosition = #Items["Value"].Instance.Text + 1
-            end)
-
-            Items["Value"]:Connect("FocusLost", function(EnterPressed)
-                CommitSliderText()
-            end)
 
             local InputChanged 
             
@@ -6662,45 +6263,43 @@ end
                 Items["Text"].Instance.Text = tostring(Text)
             end
 
-            function Label:Colorpicker(Data, Data2, Data3)
-                local Inputs
-                if Data2 ~= nil or Data3 ~= nil then
-                    Inputs = {Data, Data2, Data3}
-                elseif type(Data) == "table" and Data[1] ~= nil then
-                    Inputs = Data
-                else
-                    Inputs = {Data}
+            function Label:Colorpicker(Data)
+                Data = Data or { }
+
+                -- До 3 колорпикеров на один элемент
+                Label.ColorpickerCount = (Label.ColorpickerCount or 0) + 1
+
+                if Label.ColorpickerCount > 3 then
+                    Label.ColorpickerCount = 3
+                    warn("[Library] Max 3 colorpickers per element")
+                    return nil
                 end
 
-                local Result = { }
-                for Index = 1, math.min(#Inputs, 3) do
-                    local ItemData = Inputs[Index] or { }
-                    local Colorpicker = {
-                        Flag = ItemData.Flag or ItemData.flag or (ItemData.Name or ItemData.name or (Label.Name .. "/Color" .. Index)),
-                        Default = ItemData.Default or ItemData.default or Color3.fromRGB(255, 255, 255),
-                        Callback = ItemData.Callback or ItemData.callback or function() end,
-                        Alpha = ItemData.Alpha or ItemData.alpha or 0,
+                local ColorpickerIndex = Label.ColorpickerCount
 
-                        Window = Label.Window,
-                        Page = Label.Page,
-                        Section = Label.Section,
-                    }
+                local Colorpicker = {
+                    -- Если Flag не указан: у 2-го и 3-го колорпикера к флагу добавляется номер, чтобы флаги не совпадали
+                    Flag = Data.Flag or Data.flag or ((Data.Name or Data.name or Label.Name) .. (ColorpickerIndex > 1 and (" " .. ColorpickerIndex) or "")),
+                    Default = Data.Default or Data.default or Color3.fromRGB(255, 255, 255),
+                    Callback = Data.Callback or Data.callback or function() end,
+                    Alpha = Data.Alpha or Data.alpha or 0,
 
-                    local NewColorpicker = Library:CreateColorpicker({
-                        Parent = Items["SubElements"],
-                        Page = Colorpicker.Page,
-                        Section = Colorpicker.Section,
-                        Flag = Colorpicker.Flag,
-                        Default = Colorpicker.Default,
-                        Callback = Colorpicker.Callback,
-                        Alpha = Colorpicker.Alpha,
-                        Clipboard = ItemData.Clipboard,
-                    })
+                    Window = Label.Window,
+                    Page = Label.Page,
+                    Section = Label.Section,
+                }
 
-                    table.insert(Result, NewColorpicker)
-                end
+                local NewColorpicker, ColorpickerItems = Library:CreateColorpicker({
+                    Parent = Items["SubElements"],
+                    Page = Colorpicker.Page,
+                    Section = Colorpicker.Section,
+                    Flag = Colorpicker.Flag,
+                    Default = Colorpicker.Default,
+                    Callback = Colorpicker.Callback,
+                    Alpha = Colorpicker.Alpha
+                })
 
-                return #Result == 1 and Result[1] or Result
+                return NewColorpicker
             end
 
             function Label:Keybind(Data)
@@ -7459,7 +7058,7 @@ end
         end
 
         Library.Init = function(Self)
-            local SettingsPage = Self:Page({Name = "UI Settings", Icon = "settings"})
+            local SettingsPage = Self:Page({Name = "Settings", Icon = "rbxassetid://71354798783833"})
 
             local ConfigName
             local ConfigSelected
@@ -7583,7 +7182,7 @@ end
             end
 
             do -- Autoload
-                local AutoloadSection = SettingsPage:Section({Name = "Autoload", Icon = "play-circle", Side = 1})
+                local AutoloadSection = SettingsPage:Section({Name = "Autoload", Icon = "zap", Side = 1})
 
                 AutoloadSection:Button({
                     Name = "Set selected as autoload",
@@ -7648,143 +7247,8 @@ end
                 end
             end
 
-            do -- Mascot
-                local MascotSection = SettingsPage:Section({Name = "Mascot", Icon = "smile", Side = 2})
-                local MascotObject = Self.Mascot
-                local MascotNames = MascotObject and MascotObject:GetNames() or { }
-                local MascotDefault = MascotObject and MascotObject.CurrentMascot
-
-                if #MascotNames == 0 then
-                    MascotNames = { "None" }
-                end
-
-                MascotSection:Dropdown({
-                    Name = "Mascot",
-                    Flag = "Mascot/Selected",
-                    Items = MascotNames,
-                    Default = MascotDefault or MascotNames[1],
-                    Callback = function(Value)
-                        if MascotObject and Value ~= "None" then
-                            MascotObject:SetMascot(Value)
-                        end
-                    end
-                })
-
-                MascotSection:Slider({
-                    Name = "Position X",
-                    Flag = "Mascot/PositionX",
-                    Min = -400,
-                    Max = 400,
-                    Default = MascotObject and (MascotObject.GetCenteredPosition and select(1, MascotObject:GetCenteredPosition()) or MascotObject.Offset.X) or -222,
-                    Decimals = 0,
-                    Callback = function(Value)
-                        if MascotObject and MascotObject.SetCenteredPosition then
-                            local _, CurrentY = MascotObject:GetCenteredPosition()
-                            MascotObject:SetCenteredPosition(Value, CurrentY)
-                        elseif MascotObject then
-                            MascotObject:SetPosition(Value, nil, nil)
-                        end
-                    end
-                })
-
-                MascotSection:Slider({
-                    Name = "Position Y",
-                    Flag = "Mascot/PositionY",
-                    Min = -400,
-                    Max = 400,
-                    Default = MascotObject and (MascotObject.GetCenteredPosition and select(2, MascotObject:GetCenteredPosition()) or MascotObject.Offset.Y) or -333,
-                    Decimals = 0,
-                    Callback = function(Value)
-                        if MascotObject and MascotObject.SetCenteredPosition then
-                            local CurrentX = select(1, MascotObject:GetCenteredPosition())
-                            MascotObject:SetCenteredPosition(CurrentX, Value)
-                        elseif MascotObject then
-                            MascotObject:SetPosition(nil, Value, nil)
-                        end
-                    end
-                })
-
-                MascotSection:Slider({
-                    Name = "Rotation",
-                    Flag = "Mascot/Rotation",
-                    Min = -180,
-                    Max = 180,
-                    Default = MascotObject and MascotObject.Rotation or 0,
-                    Decimals = 0,
-                    Suffix = "°",
-                    Callback = function(Value)
-                        if MascotObject then MascotObject:SetRotation(Value) end
-                    end
-                })
-
-                MascotSection:Slider({
-                    Name = "Size",
-                    Flag = "Mascot/Size",
-                    Min = 20,
-                    Max = 400,
-                    Default = MascotObject and MascotObject.Size.X or 120,
-                    Decimals = 0,
-                    Callback = function(Value)
-                        if MascotObject then MascotObject:SetSize(Value) end
-                    end
-                })
-
-                MascotSection:Dropdown({
-                    Name = "Click Sound",
-                    Flag = "Mascot/ClickSound",
-                    Items = {"nyaa", "None"},
-                    Default = "nyaa",
-                    Callback = function(Value)
-                        if MascotObject then
-                            MascotObject:SetClickSound(Value == "None" and nil or "102774986031312")
-                        end
-                    end
-                })
-
-                MascotSection:Slider({
-                    Name = "Click Sound Volume",
-                    Flag = "Mascot/ClickVolume",
-                    Min = 0,
-                    Max = 100,
-                    Default = math.floor(((MascotObject and MascotObject.ClickSoundVolume) or Library.MascotClickVolume or 0.8) * 100 + 0.5),
-                    Decimals = 0,
-                    Suffix = "%",
-                    Callback = function(Value)
-                        if MascotObject and MascotObject.SetClickSoundVolume then
-                            MascotObject:SetClickSoundVolume(Value / 100)
-                        end
-                        Library:SetMascotClickVolume(Value / 100)
-                    end
-                })
-
-                MascotSection:Button({
-                    Name = "Reset to Default",
-                    Callback = function()
-                        if MascotObject then
-                            if MascotObject.SetMascot then
-                                local Names = MascotObject:GetNames()
-                                if table.find(Names, "mimi") then
-                                    MascotObject:SetMascot("mimi")
-                                end
-                            end
-                            if MascotObject.SetRotation then
-                                MascotObject:SetRotation(0)
-                            end
-                            if MascotObject.SetSize then
-                                MascotObject:SetSize(120)
-                            end
-                            if MascotObject.SetCenteredPosition then
-                                MascotObject:SetCenteredPosition(-222, -333)
-                            else
-                                MascotObject:SetPosition(-222, -333, nil)
-                            end
-                        end
-                    end
-                })
-            end
-
             do -- Menu
-                local MenuSection = SettingsPage:Section({Name = "Menu", Icon = "settings", Side = 2})
+                local MenuSection = SettingsPage:Section({Name = "Menu", Icon = "menu", Side = 2})
 
                 MenuSection:Label({Name = "Menu Keybind"}):Keybind({
                     Name = "Menu Keybind",
@@ -7844,29 +7308,6 @@ end
                         end
                     })
                 end
-
-                MenuSection:Dropdown({
-                    Name = "UI Click Sound",
-                    Flag = "UIClickSound",
-                    Items = {"Simple click", "None"},
-                    Default = "Simple click",
-                    Callback = function(Value)
-                        Library:SetUIClickSound(Value == "None" and nil or "88442833509532")
-                    end
-                })
-
-                MenuSection:Slider({
-                    Name = "UI Click Volume",
-                    Flag = "UIClickVolume",
-                    Min = 0,
-                    Max = 100,
-                    Default = math.floor((Library.UIClickVolume or 0.65) * 100 + 0.5),
-                    Decimals = 0,
-                    Suffix = "%",
-                    Callback = function(Value)
-                        Library:SetUIClickVolume(Value / 100)
-                    end
-                })
 
                 MenuSection:Divider()
 
