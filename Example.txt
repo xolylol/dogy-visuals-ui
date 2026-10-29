@@ -1,5 +1,5 @@
 
-local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/BugBuster3000/sametlibs/refs/heads/main/Reptillian/Source"))()
+local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/xolylol/dogy-visuals-ui/refs/heads/main/Source.lua"))()
 
 local Window = Library:Window({
     Name = "Reptillian.lua",
