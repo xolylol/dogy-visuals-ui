@@ -10763,6 +10763,24 @@ end
         end
 
 
+        -- Defaults shared by every window. Override before Window:Init() if desired.
+        Library.DefaultMascotEnabled = true
+        Library.DefaultMascotOptions = {
+            Mascots = {
+                mimi = {
+                    Url = "https://raw.githubusercontent.com/xolylol/dogy-visuals-ui/refs/heads/main/mimi.jpg",
+                    Size = 120,
+                    Offset = Vector2.new(-222, -333),
+                    Rotation = 0,
+                    ZIndex = 3,
+                    ClickSound = "102774986031312",
+                    ClickSoundVolume = 0.8
+                }
+            },
+            DefaultMascot = "mimi",
+            PressScale = Vector2.new(1.05, 0.88)
+        }
+
         -- Window:Init() builds the "UI Settings" page: profiles, autoload, theming,
         -- mascot (picker / position / rotation / size / sounds / reset) and menu options.
         -- Call it LAST, after every page, so autoload can restore all flags.
@@ -10776,6 +10794,12 @@ end
 
             if Window.SettingsPage then
                 return Window.SettingsPage
+            end
+
+            -- Built-in mascot belongs to the library, not the consumer example.
+            -- Consumers may still override it by calling Window:Mascot(...) before :Init().
+            if not Window.Mascot and Library.DefaultMascotEnabled ~= false then
+                Window:Mascot(Library.DefaultMascotOptions)
             end
 
             local SettingsPage = Window:Page({Name = "UI Settings", Icon = "settings"})
