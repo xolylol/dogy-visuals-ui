@@ -858,62 +858,100 @@ local Library = {
         end)
     end
 
+    -- v17: movement is relative to the position at mouse-down, not to a
+    -- reconstructed AbsolutePosition. Starting a drag with an unmoved mouse
+    -- must NEVER change Gui.Position. No tween is created on every mouse event.
     Library.MakeDraggable = function(Self, Handle)
         if not Self.Instance then return end
         local Gui = Self.Instance
         local HandleInstance = (Handle and Handle.Instance) or Gui
-        local Dragging, DragStart, StartAbsolute
-        local CurrentTween
+        local Dragging = false
+        local DragStart = nil
+        local StartPosition = nil
+        local StartAbsolute = nil
+        local TouchInput = nil
+        local EndConnection = nil
+
+        local function FinishDrag()
+            Dragging = false
+            TouchInput = nil
+            if EndConnection then
+                EndConnection:Disconnect()
+                EndConnection = nil
+            end
+        end
 
         Library:Connect(HandleInstance.InputBegan, function(Input)
             if Input.UserInputType ~= Enum.UserInputType.MouseButton1
                 and Input.UserInputType ~= Enum.UserInputType.Touch then return end
+
+            FinishDrag()
             Dragging = true
-            DragStart = Input.Position
+            TouchInput = Input.UserInputType == Enum.UserInputType.Touch and Input or nil
+            DragStart = Vector2.new(Input.Position.X, Input.Position.Y)
+            StartPosition = Gui.Position
             StartAbsolute = Gui.AbsolutePosition
-            -- No listener leak: the end connection is scoped to each pointer down.
-            local EndConnection
+
             EndConnection = Input.Changed:Connect(function()
-                if Input.UserInputState == Enum.UserInputState.End then
-                    Dragging = false
-                    if EndConnection then EndConnection:Disconnect() end
+                if Input.UserInputState == Enum.UserInputState.End
+                    or Input.UserInputState == Enum.UserInputState.Cancel then
+                    FinishDrag()
                 end
             end)
         end)
 
         Library:Connect(UserInputService.InputChanged, function(Input)
-            if not Dragging then return end
-            if Input.UserInputType ~= Enum.UserInputType.MouseMovement
-                and Input.UserInputType ~= Enum.UserInputType.Touch then return end
-            local Delta = Input.Position - DragStart
-            local Screen = Gui.Parent.AbsoluteSize
+            if not Dragging or not Gui.Parent then return end
+            if TouchInput then
+                if Input ~= TouchInput then return end
+            elseif Input.UserInputType ~= Enum.UserInputType.MouseMovement then
+                return
+            end
+
+            local Delta = Vector2.new(Input.Position.X, Input.Position.Y) - DragStart
+            if Delta.Magnitude < 0.5 then return end
+
+            local Parent = Gui.Parent
+            local Screen = Parent.AbsoluteSize
             local Size = Gui.AbsoluteSize
-            -- Keep just the title strip accessible, rather than locking the whole
-            -- window inside the monitor. AnchorPoint is accounted for explicitly.
-            local X = math.clamp(StartAbsolute.X + Delta.X, -Size.X + 90, Screen.X - 90)
-            local Y = math.clamp(StartAbsolute.Y + Delta.Y, -Size.Y + 55, Screen.Y - 44)
-            local ParentPosition = Gui.Parent:IsA("GuiObject") and Gui.Parent.AbsolutePosition or Vector2.zero
-            local Destination = UDim2.fromOffset(
-                math.floor(X - ParentPosition.X + Size.X * Gui.AnchorPoint.X + 0.5),
-                math.floor(Y - ParentPosition.Y + Size.Y * Gui.AnchorPoint.Y + 0.5)
+            -- Keep some of the window/title reachable even when dragged out
+            -- of view. Clamp the pixel DELTA, never rebuild a new anchor point.
+            local ParentOrigin = Parent:IsA("GuiObject") and Parent.AbsolutePosition or Vector2.zero
+            local DesiredX = math.clamp(StartAbsolute.X + Delta.X,
+                ParentOrigin.X - Size.X + 90, ParentOrigin.X + Screen.X - 90)
+            local DesiredY = math.clamp(StartAbsolute.Y + Delta.Y,
+                ParentOrigin.Y - Size.Y + 55, ParentOrigin.Y + Screen.Y - 44)
+
+            local MoveX = DesiredX - StartAbsolute.X
+            local MoveY = DesiredY - StartAbsolute.Y
+            Gui.Position = UDim2.new(
+                StartPosition.X.Scale, StartPosition.X.Offset + MoveX,
+                StartPosition.Y.Scale, StartPosition.Y.Offset + MoveY
             )
-            if CurrentTween then CurrentTween:Cancel() end
-            CurrentTween = Self:Tween({Position = Destination},
-                TweenInfo.new(0.12, Enum.EasingStyle.Quart, Enum.EasingDirection.Out))
+        end)
+
+        Library:Connect(UserInputService.InputEnded, function(Input)
+            if Dragging and not TouchInput
+                and Input.UserInputType == Enum.UserInputType.MouseButton1 then
+                FinishDrag()
+            end
         end)
     end
 
+    -- Preserve the existing on-screen top-left immediately. A one-frame wait
+    -- or an extra GuiInset produces a visible jump on ScreenGui IgnoreGuiInset.
     Library.ConvertAnchor = function(Self)
-        if not Self.Instance then
-            return
-        end
-
+        if not Self.Instance then return end
         local Gui = Self.Instance
-        local AbsPos = Gui.AbsolutePosition
-
-        Gui.AnchorPoint = Vector2.new(0, 0)
-        task.wait()
-        Gui.Position = UDim2.new(0, AbsPos.X, 0, AbsPos.Y + GuiInset)
+        if Gui.AnchorPoint == Vector2.zero then return end
+        local Absolute = Gui.AbsolutePosition
+        local Parent = Gui.Parent
+        local Origin = Parent and Parent:IsA("GuiObject") and Parent.AbsolutePosition or Vector2.zero
+        Gui.AnchorPoint = Vector2.zero
+        Gui.Position = UDim2.fromOffset(
+            Absolute.X - Origin.X,
+            Absolute.Y - Origin.Y
+        )
     end
 
     Library.MakeResizeable = function(Self, Minimum)
@@ -3512,9 +3550,12 @@ Library.Watermark = function(Self, Params)
             }
 
             local Items = { } do
-                Items["Watermark"] = Library:Create("Frame", {
+                Items["Watermark"] = Library:Create("TextButton", {
                     Name = "\0",
                     Parent = Library.Holder.Instance,
+                    Text = "",
+                    AutoButtonColor = false,
+                    TextTransparency = 1,
                     AnchorPoint = Vector2.new(0.5, 1),
                     Position = UDim2.new(0.5, 0, 1, -10),
                     Size = UDim2.fromOffset(220, 45),
@@ -3870,17 +3911,10 @@ Library.Watermark = function(Self, Params)
             Self.Watermark = Watermark
             Watermark.Window = Self
 
-            local WatermarkHit = Instance.new("TextButton")
-            WatermarkHit.Name = "WatermarkMenuToggle"
-            WatermarkHit.BackgroundTransparency = 1
-            WatermarkHit.BorderSizePixel = 0
-            WatermarkHit.Text = ""
-            WatermarkHit.AutoButtonColor = false
-            WatermarkHit.Size = UDim2.new(1, 0, 1, 0)
-            WatermarkHit.Position = UDim2.new(0, 0, 0, 0)
-            WatermarkHit.ZIndex = 80
-            WatermarkHit.Parent = Items["Watermark"].Instance
-            WatermarkHit.MouseButton1Click:Connect(function()
+            -- The root itself handles clicks. Adding a 100%-wide sibling to
+            -- its UIListLayout would create a circular AutomaticSize.X chain,
+            -- stretching the watermark across the whole screen.
+            Library:Connect(Items["Watermark"].Instance.MouseButton1Click, function()
                 if Watermark.Window and Watermark.Window.SetOpen then
                     Watermark.Window:SetOpen(not Watermark.Window.IsOpen)
                 end
