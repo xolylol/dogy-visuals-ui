@@ -38,7 +38,7 @@ local GuiInset = GuiService:GetGuiInset().Y
 local Mouse = cloneref(LocalPlayer:GetMouse())
 
 local Library = {
-    BuildVersion = "2026.10.29-v15-ui-fixes",
+    BuildVersion = "2026.10.29-v16-watermark-inline-dropdown",
     Flags = { },
 
     MenuKeybind = tostring(Enum.KeyCode.X),
@@ -3517,7 +3517,7 @@ Library.Watermark = function(Self, Params)
                     Parent = Library.Holder.Instance,
                     AnchorPoint = Vector2.new(0.5, 1),
                     Position = UDim2.new(0.5, 0, 1, -10),
-                    Size = UDim2.new(0, 0, 0, 45),
+                    Size = UDim2.fromOffset(220, 45),
                     BorderSizePixel = 0,
                     AutomaticSize = Enum.AutomaticSize.X,
                     BackgroundColor3 = Library.Theme["Inline"]
@@ -3811,15 +3811,10 @@ Library.Watermark = function(Self, Params)
                     end
                 end
 
-                local OldCenterX = Items["Watermark"].Instance.AbsolutePosition.X + Items["Watermark"].Instance.AbsoluteSize.X / 2
+                -- The watermark is centre-anchored, so adding/removing text
+                -- cannot shift the bar to the right. Preserve drag position.
                 Watermark.Fields = Fields
                 RebuildFields()
-                task.defer(function()
-                    local Frame = Items["Watermark"].Instance
-                    if Frame and Frame.Parent then
-                        Frame.Position = UDim2.new(0, math.max(0, OldCenterX - Frame.AbsoluteSize.X / 2), Frame.Position.Y.Scale, Frame.Position.Y.Offset)
-                    end
-                end)
             end
 
             function Watermark:GetFields()
@@ -3847,7 +3842,17 @@ Library.Watermark = function(Self, Params)
             RebuildFields()
 
             function Watermark:Center()
-                Items["Watermark"]:ConvertAnchor()
+                -- Keep the root anchored at its centre while AutomaticSize.X
+                -- changes with the FPS/Ping fields. Never convert its anchor
+                -- using AbsolutePosition before the UI has measured its width.
+                local Frame = Items["Watermark"].Instance
+                local OldAnchor = Frame.AnchorPoint
+                if OldAnchor ~= Vector2.new(0.5, 1) then
+                    local Centre = Frame.AbsolutePosition.X + Frame.AbsoluteSize.X / 2
+                    local Bottom = Frame.AbsolutePosition.Y + Frame.AbsoluteSize.Y
+                    Frame.AnchorPoint = Vector2.new(0.5, 1)
+                    Frame.Position = UDim2.fromOffset(Centre, Bottom)
+                end
             end
 
             local WatermarkVisibilityState = {}
@@ -5037,8 +5042,7 @@ Library.Watermark = function(Self, Params)
                 Footer.Name = "DogyFooter"
                 Footer.AnchorPoint = Vector2.new(0, 1)
                 Footer.Position = UDim2.new(0, 0, 1, 0)
-                Footer.Size = UDim2.new(1, -2, 0, 24)
-                Footer.Position = UDim2.new(0, 1, 1, -1)
+                Footer.Size = UDim2.new(1, 0, 0, 24)
                 Footer.ClipsDescendants = true
                 Footer.BackgroundTransparency = 0
                 Footer.BackgroundColor3 = Library.Theme["Background"]
@@ -5047,9 +5051,21 @@ Library.Watermark = function(Self, Params)
                 Footer.Parent = Items["MainFrame"].Instance
                 -- Rounded bottom edge; avoid the rectangular footer covering the main corner.
                 local FooterCorner = Instance.new("UICorner")
-                FooterCorner.CornerRadius = UDim.new(0, 9)
+                FooterCorner.CornerRadius = UDim.new(0, 10)
                 FooterCorner.Parent = Footer
                 Library.AddToTheme({Instance = Footer}, {BackgroundColor3 = "Background"})
+
+                -- Footer is rounded only at the bottom. Without this cap,
+                -- the top rounded corners let scrolling content show through.
+                local FooterTopFill = Instance.new("Frame")
+                FooterTopFill.Name = "FooterTopFill"
+                FooterTopFill.BorderSizePixel = 0
+                FooterTopFill.BackgroundColor3 = Library.Theme["Background"]
+                FooterTopFill.Size = UDim2.new(1, 0, 0, 12)
+                FooterTopFill.Position = UDim2.fromOffset(0, 0)
+                FooterTopFill.ZIndex = 2
+                FooterTopFill.Parent = Footer
+                Library.AddToTheme({Instance = FooterTopFill}, {BackgroundColor3 = "Background"})
 
                 local FooterText = Instance.new("TextLabel")
                 FooterText.Name = "VersionText"
@@ -7670,6 +7686,7 @@ end
                     Parent = Parent.Instance,
                     BackgroundTransparency = 1,
                     Size = UDim2.new(1, 0, 0, 51),
+                    ClipsDescendants = true, -- avoid overlay during open tween
                     BorderSizePixel = 0
                 })
 
@@ -7694,8 +7711,8 @@ end
                     TextColor3 = Color3.fromRGB(0, 0, 0),
                     Text = "",
                     AutoButtonColor = false,
-                    AnchorPoint = Vector2.new(0, 1),
-                    Position = UDim2.new(0, 0, 1, 0),
+                    AnchorPoint = Vector2.new(0, 0),
+                    Position = UDim2.fromOffset(0, 21),
                     Size = UDim2.new(1, 0, 0, 30),
                     BorderSizePixel = 0,
                     BackgroundColor3 = Library.Theme["Outline"]
@@ -7760,13 +7777,13 @@ end
                     Name = "\0",
                     FontFace = Library.Font,
                     TextSize = Library.FontSize,
-                    Parent = Library.Holder.Instance,
+                    Parent = Items["Dropdown"].Instance,
                     TextColor3 = Color3.fromRGB(0, 0, 0),
                     Text = "",
                     Visible = false,
                     AutoButtonColor = false,
-                    Position = UDim2.new(0.719742476940155, 0, 0.1462799459695816, 0),
-                    Size = UDim2.new(0, 241, 0, 175),
+                    Position = UDim2.fromOffset(0, 54),
+                    Size = UDim2.new(1, 0, 0, 0),
                     BorderSizePixel = 0,
                     BackgroundColor3 = Library.Theme["Inline"]
                 }):AddToTheme({BackgroundColor3 = 'Inline'})
@@ -8101,6 +8118,11 @@ end
                     end
 
                     Library:SafeCall(Dropdown.Callback, Dropdown.Value)
+                    if not Dropdown.Multi and Dropdown.IsOpen then
+                        task.defer(function()
+                            if Dropdown.IsOpen then Dropdown:SetOpen(false) end
+                        end)
+                    end
                 end
 
                 OptionData.Button:Connect("MouseButton1Down", function()
@@ -8111,32 +8133,25 @@ end
                 return OptionData
             end
 
-            function Dropdown:Search(Query)
-                SearchOptions(Dropdown.Options, Query, Items["Holder"])
-
-                if not Dropdown.IsOpen then
-                    return
-                end
-
-                Query = string.lower(tostring(Query or ""))
-                local Width = Items["RealDropdown"].Instance.AbsoluteSize.X
-                local TargetHeight = Dropdown.MaxSize
-
-                if Query ~= "" then
-                    local VisibleCount = 0
-
-                    for _, OptionData in Dropdown.Options do
-                        if OptionData.SearchVisible then
-                            VisibleCount += 1
-                        end
+            local function GetDropdownContentHeight(Query)
+                local Count = 0
+                for _, OptionData in Dropdown.Options do
+                    if Query == "" or OptionData.SearchVisible then
+                        Count += 1
                     end
-
-                    local HeaderHeight = 40
-                    TargetHeight = math.clamp(HeaderHeight + VisibleCount * OptionSlot, HeaderHeight, Dropdown.MaxSize)
                 end
+                -- Search row + padded list. Clamp to MaxSize (internal scrolling).
+                return math.clamp(43 + Count * OptionSlot, 56, math.max(56, Dropdown.MaxSize))
+            end
 
-                Items["Holder"]:Tween({ScrollBarImageTransparency = Query ~= "" and 1 or 0}, OptionSearchInfo)
-                Items["OptionHolder"]:Tween({Size = UDim2.new(0, Width, 0, TargetHeight)}, OptionSearchInfo)
+            function Dropdown:Search(Query)
+                Query = string.lower(tostring(Query or ""))
+                SearchOptions(Dropdown.Options, Query, Items["Holder"])
+                if Dropdown.IsOpen then
+                    local Height = GetDropdownContentHeight(Query)
+                    Items["OptionHolder"].Instance.Size = UDim2.new(1, 0, 0, Height)
+                    Items["Dropdown"].Instance.Size = UDim2.new(1, 0, 0, 54 + Height)
+                end
             end
 
             function Dropdown:Remove(Option)
@@ -8163,109 +8178,60 @@ end
             end
 
             function Dropdown:SetVisibility(Bool)
+                if not Bool and Dropdown.IsOpen then Dropdown:SetOpen(false) end
                 Items["Dropdown"].Instance.Visible = Bool
             end
 
             local OptionHolder = Items["OptionHolder"].Instance
             local RealDropdown = Items["RealDropdown"].Instance
-            local IsSettings = Dropdown.Section and Dropdown.Section.IsSettings
-            local PopupTween
+            local DropdownFrame = Items["Dropdown"].Instance
+            local DropdownTween
+            local OpenHeight = 0
 
-            -- The popup stays in the active ScreenGui for its entire lifetime.
-            -- The previous version moved it to a disabled ScreenGui during hide,
-            -- while concurrent fades tried to restore its visibility; this could
-            -- produce an invisible dropdown even with nonempty Items.
-            local function PlaceDropdownPopup()
-                if not Dropdown.IsOpen or not RealDropdown.Parent then return end
-                local Root = Library.Holder.Instance
-                local Screen = Root.AbsoluteSize
-                local Position = RealDropdown.AbsolutePosition
-                local Size = RealDropdown.AbsoluteSize
-                local AvailableBottom = Screen.Y - (Position.Y + Size.Y) - 8
-                local AvailableTop = Position.Y - 8
-                local Rows = math.max(1, #Dropdown.OptionItems)
-                local Desired = math.min(Dropdown.MaxSize, 45 + Rows * OptionSlot)
-                local ShowAbove = AvailableBottom < math.min(Desired, 100) and AvailableTop > AvailableBottom
-                local Available = ShowAbove and AvailableTop or AvailableBottom
-                local Height = math.max(50, math.min(Desired, math.max(50, Available - 5)))
-                local PopupWidth = math.max(Size.X, 90)
-                local X = math.clamp(Position.X, 4, math.max(4, Screen.X - PopupWidth - 4))
-                local Y = ShowAbove and (Position.Y - Height - 1) or (Position.Y + Size.Y + 1)
-                Y = math.clamp(Y, 4, math.max(4, Screen.Y - Height - 4))
-                OptionHolder.Position = UDim2.fromOffset(X, Y)
-                OptionHolder.Size = UDim2.fromOffset(PopupWidth, Height)
-            end
-
+            -- The options are INSIDE the dropdown's layout cell. UIListLayout
+            -- pushes all following controls and sections down automatically,
+            -- rather than covering them with a floating screen-space popup.
             function Dropdown:SetOpen(Bool)
                 Bool = Bool and true or false
                 if Bool == Dropdown.IsOpen then return end
                 Dropdown.IsOpen = Bool
                 Items["Icon"]:Tween({Rotation = Bool and 180 or 0})
-
-                if PopupTween then
-                    PopupTween:Cancel()
-                    PopupTween = nil
-                end
+                if DropdownTween then DropdownTween:Cancel() DropdownTween = nil end
 
                 if Bool then
-                    -- Only one dropdown/colorpicker/options popup can own the pointer.
                     Library:RegisterOpenFrame(Dropdown, {
                         HoverItems = { Items["OptionHolder"], Items["RealDropdown"] },
                         AnchorInstance = RealDropdown,
                         PopupInstance = OptionHolder,
                     })
-                    OptionHolder.Parent = Library.Holder.Instance
+                    OptionHolder.Parent = DropdownFrame
+                    OptionHolder.Position = UDim2.fromOffset(0, 54)
+                    OpenHeight = GetDropdownContentHeight(Items["Search"].Instance.Text:lower())
                     OptionHolder.Visible = true
-                    OptionHolder.BackgroundTransparency = 1
-                    PlaceDropdownPopup()
-                    -- Animate only the background; do not hide the option rows.
-                    PopupTween = TweenService:Create(OptionHolder,
-                        TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-                        {BackgroundTransparency = 0})
-                    PopupTween:Play()
-                    if Dropdown.AnchorFollowConnection then
-                        Dropdown.AnchorFollowConnection:Disconnect()
-                    end
-                    Dropdown.AnchorFollowConnection = Library:Connect(RunService.RenderStepped, function()
-                        if not Dropdown.IsOpen then return end
-                        local Scroller = RealDropdown.Parent
-                        while Scroller and Scroller ~= Library.Holder.Instance and not Scroller:IsA("ScrollingFrame") do
-                            Scroller = Scroller.Parent
-                        end
-                        if Scroller and Scroller:IsA("ScrollingFrame") then
-                            local A, B = RealDropdown.AbsolutePosition, RealDropdown.AbsoluteSize
-                            local P, S = Scroller.AbsolutePosition, Scroller.AbsoluteSize
-                            if A.Y + B.Y < P.Y or A.Y > P.Y + S.Y then
-                                Dropdown:SetOpen(false)
-                                return
-                            end
-                        end
-                        PlaceDropdownPopup()
-                    end)
+                    OptionHolder.Size = UDim2.new(1, 0, 0, OpenHeight)
+                    DropdownTween = TweenService:Create(DropdownFrame,
+                        TweenInfo.new(0.19, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+                        {Size = UDim2.new(1, 0, 0, 54 + OpenHeight)})
+                    DropdownTween:Play()
                 else
+                    -- Close before collapsing, so rows never cover the next
+                    -- element during the animation.
                     OptionHolder.Visible = false
-                    OptionHolder.BackgroundTransparency = 0
-                    Items["Search"].Instance.Text = ""
-                    Dropdown:Search("")
                     Library:CloseOpenFrameChildren(Dropdown)
                     Library:UnregisterOpenFrame(Dropdown)
-                    if Dropdown.AnchorFollowConnection then
-                        Dropdown.AnchorFollowConnection:Disconnect()
-                        Dropdown.AnchorFollowConnection = nil
-                    end
+                    DropdownTween = TweenService:Create(DropdownFrame,
+                        TweenInfo.new(0.16, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+                        {Size = UDim2.new(1, 0, 0, 51)})
+                    DropdownTween:Play()
+                    Items["Search"].Instance.Text = ""
                 end
-
-                local Layer = (IsSettings and Library.ZIndexOrder.OptionHolder + 4 or Library.ZIndexOrder.OptionHolder)
+                -- No global ZIndex override: an embedded list must not cover
+                -- unrelated popups, footer, other sections or color pickers.
+                OptionHolder.ZIndex = 8
                 for _, Object in OptionHolder:GetDescendants() do
-                    if Object:IsA("GuiObject") then
-                        Object.ZIndex = Bool and Layer + 1 or 1
-                    end
+                    if Object:IsA("GuiObject") then Object.ZIndex = 9 end
                 end
-                OptionHolder.ZIndex = Bool and Layer or 1
             end
-
-            -- Do not use VisibleCheck() here. It re-parents hidden dropdowns
-            -- into a disabled ScreenGui and can race with the open animation.
 
             Library:RegisterOpenFrameTrigger(Items["RealDropdown"])
 
