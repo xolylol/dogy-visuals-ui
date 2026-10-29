@@ -1,4 +1,4 @@
--- mimisense v30: synchronized overlay animations, vertical notifications, hotkeys title.
+-- mimisense v31: synchronized overlay animations, vertical notifications, hotkeys title.
 -- mimisense v22: no keybind conflict dialog, accented overlay glow, themed opaque notifications, stable options popup placement
 -- mimisense UI library: search, tooltips, DependsOn, range slider, context menu, section reset, animated themes,
 -- export/import strings, menu settings, new colorpicker, watermark fields, keybind list modes, notification side
@@ -40,7 +40,7 @@ local GuiInset = GuiService:GetGuiInset().Y
 local Mouse = cloneref(LocalPlayer:GetMouse())
 
 local Library = {
-    BuildVersion = "2026.10.29-v30-mimisense-soft-overlays-hotkeys",
+    BuildVersion = "2026.10.29-v31-mimisense-attached-glow-dropdown",
     Flags = { },
 
     MenuKeybind = tostring(Enum.KeyCode.X),
@@ -819,6 +819,9 @@ local Library = {
         local Targets = RootObject:GetDescendants()
         table.insert(Targets, RootObject)
         for _, Object in ipairs(Targets) do
+            -- Glow has its own fade tween, synchronized with this transition.
+            -- Never let generic descendant transparency animation override it.
+            if Object.Name == 'MimisenseAttachedGlow_v31' then continue end
             local Properties = Library:GetTweenProperty(Object)
             if type(Properties) == 'table' and #Properties > 0 then
                 local Stored = State.Baseline[Object]
@@ -866,6 +869,7 @@ local Library = {
         table.insert(Children, Self.Instance)
 
         for _, Child in Children do
+            if Child.Name == 'MimisenseAttachedGlow_v31' then continue end
             local TransparencyProperty = Library:GetTweenProperty(Child)
 
             if not TransparencyProperty then
@@ -5264,7 +5268,7 @@ Library.Watermark = function(Self, Params)
                 FooterText.BackgroundTransparency = 1
                 FooterText.BorderSizePixel = 0
                 
-                FooterText.Text = tostring(Library.CustomVersionLabel or "mimisense · v30")
+                FooterText.Text = tostring(Library.CustomVersionLabel or "mimisense · v31")
                 
                 FooterText.TextColor3 = Library.Theme["Inactive Text"]
                 FooterText.FontFace = Library.Font
@@ -5485,9 +5489,6 @@ Library.Watermark = function(Self, Params)
                 Items['Image'].Instance.Active = true
                 Items['Scale'].Instance.Scale = 1
                 Items['Image']:Tween({ImageTransparency = 0}, ShowInfo)
-                if Library.SetOverlayGlowVisibility then
-                    Library:SetOverlayGlowVisibility(Items['Image'].Instance, true, ShowInfo.Time)
-                end
             end
 
             local function Hide()
@@ -5496,9 +5497,6 @@ Library.Watermark = function(Self, Params)
                 Items['Image'].Instance.Active = false
                 Items['Scale'].Instance.Scale = 1
                 Items['Image']:Tween({ImageTransparency = 1}, HideInfo)
-                if Library.SetOverlayGlowVisibility then
-                    Library:SetOverlayGlowVisibility(Items['Image'].Instance, false, HideInfo.Time)
-                end
                 task.delay(HideInfo.Time + 0.02, function()
                     if Library and Token == Mine and Items['Image'].Instance.Parent then
                         Items['Image'].Instance.Visible = false
@@ -6703,12 +6701,28 @@ end
                     CornerRadius = UDim.new(1, 0)
                 })
 
-                -- content: every element goes in here (Section-compatible)
+                -- The scroll viewport owns the modal's visible height.
+                -- Expanded inline dropdowns grow the internal canvas rather
+                -- than moving the popup across the screen.
+                Items["ContentViewport"] = Library:Create("ScrollingFrame", {
+                    Name = "MimisenseOptionsScrollViewport",
+                    Parent = Items["OptionsWindow"].Instance,
+                    BackgroundTransparency = 1, BorderSizePixel = 0,
+                    Size = UDim2.new(1, 0, 0, 0),
+                    LayoutOrder = 3,
+                    CanvasSize = UDim2.fromOffset(0,0),
+                    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+                    ScrollingDirection = Enum.ScrollingDirection.Y,
+                    ScrollBarThickness = 2,
+                    ScrollBarImageColor3 = Library.Theme["Accent"],
+                    Active = true, ClipsDescendants = true
+                }):AddToTheme({ScrollBarImageColor3='Accent'})
+                -- content: Section-compatible parent for every nested control
                 Items["Content"] = Library:Create("Frame", {
                     Name = "\0",
-                    Parent = Items["OptionsWindow"].Instance,
+                    Parent = Items["ContentViewport"].Instance,
                     BackgroundTransparency = 1,
-                    Size = UDim2.new(1, 0, 0, 0),
+                    Size = UDim2.new(1, -5, 0, 0),
                     LayoutOrder = 3,
                     BorderSizePixel = 0,
                     AutomaticSize = Enum.AutomaticSize.Y
@@ -6726,6 +6740,22 @@ end
 
             local GearButton = Items["GearButton"].Instance
             local PopupWindow = Items["OptionsWindow"].Instance
+            local ContentFrame = Items["Content"].Instance
+            local ContentViewport = Items["ContentViewport"].Instance
+            local Layout = ContentFrame:FindFirstChildOfClass('UIListLayout')
+            local function UpdateViewport()
+                if not Options.IsOpen then return end
+                local Height = math.max(48, ContentFrame.AbsoluteSize.Y,
+                    Layout and Layout.AbsoluteContentSize.Y or 0)
+                -- Do not move the popup when its dropdown opens. Grow only
+                -- within the screen, then scroll the remaining contents.
+                local ScreenHeight = Library.Holder.Instance.AbsoluteSize.Y
+                local Top = PopupWindow.AbsolutePosition.Y
+                local Allowed = math.max(72, ScreenHeight - Top - 70)
+                local MaxHeight = math.min(440, Allowed)
+                ContentViewport.Size = UDim2.new(1,0,0,math.min(Height,MaxHeight))
+            end
+            Library:Connect(ContentFrame:GetPropertyChangedSignal('AbsoluteSize'), UpdateViewport)
 
             local Hovering = false
             local Debounce = false
@@ -6770,25 +6800,32 @@ end
                 end
             end
 
+            -- Keep the popup pinned after opening. Its inner dropdown grows
+            -- downward; auto-following the gear/height every RenderStepped
+            -- made the popup jump wildly when UI Settings was scrolled.
+            -- We follow only the main window's displacement while it is dragged.
             local function StartFollow()
                 StopFollow()
-
+                local MainWindow = Options.Window
+                local Frame = MainWindow and MainWindow.Items and MainWindow.Items.MainFrame
+                local MainFrame = Frame and Frame.Instance
+                local BaseMainPosition = MainFrame and MainFrame.AbsolutePosition
+                local BasePopupPosition = PopupWindow.Position
                 FollowConnection = RunService.RenderStepped:Connect(function()
-                    if not Options.IsOpen then
-                        return
-                    end
-
-                    -- page was switched / library unloaded / main window closed
-                    local MainWindow = Options.Window
+                    if not Options.IsOpen then return end
                     if not GearButton:IsDescendantOf(Library.Holder.Instance)
-                    or (type(MainWindow) == "table" and MainWindow.IsOpen == false) then
+                        or (type(MainWindow)=='table' and MainWindow.IsOpen==false) then
                         Options:SetOpen(false)
                         return
                     end
-
-                    PopupWindow.Position = GetTarget(0)
+                    if MainFrame and BaseMainPosition then
+                        local Delta = MainFrame.AbsolutePosition - BaseMainPosition
+                        local NewPosition = BasePopupPosition + UDim2.fromOffset(Delta.X, Delta.Y)
+                        if PopupWindow.Position ~= NewPosition then
+                            PopupWindow.Position = NewPosition
+                        end
+                    end
                 end)
-
                 table.insert(Library.Connections, FollowConnection)
             end
 
@@ -6807,7 +6844,13 @@ end
                     -- Reparent before measuring: an inactive ScreenGui can report
                     -- zero absolute popup height and produce the wrong placement.
                     PopupWindow.Parent = Library.Holder.Instance
+                    -- Initial height is derived from the content, before
+                    -- the popup side is selected. Expanded dropdowns won't
+                    -- change this side or force a global reposition.
+                    ContentViewport.Size = UDim2.new(1,0,0,math.max(50,
+                        Layout and Layout.AbsoluteContentSize.Y or ContentFrame.AbsoluteSize.Y))
                     PopupWindow.Position = GetTarget(-SlideOffset)
+                    UpdateViewport()
 
                     Items["OptionsWindow"]:Tween({Position = GetTarget(0)})
 
@@ -6815,6 +6858,7 @@ end
                         Debounce = false
 
                         if Options.IsOpen then
+                            UpdateViewport()
                             StartFollow()
                         end
                     end)
@@ -8459,6 +8503,19 @@ end
                     DropdownTween:Play()
                     Items["Search"].Instance.Text = ""
                 end
+                -- Update the nearest Options viewport on the next layout pass.
+                -- The popup itself keeps its origin and never jumps upward.
+                task.defer(function()
+                    local Parent = DropdownFrame.Parent
+                    while Parent and Parent.Name ~= 'MimisenseOptionsScrollViewport' do
+                        Parent = Parent.Parent
+                    end
+                    if Parent and Parent:IsA('ScrollingFrame') then
+                        Parent.CanvasSize = UDim2.fromOffset(0,0)
+                        -- AutomaticCanvasSize.Y handles the rest; this does not
+                        -- change the popup's screen position.
+                    end
+                end)
                 -- No global ZIndex override: an embedded list must not cover
                 -- unrelated popups, footer, other sections or color pickers.
                 if Library.RefreshPopupLayer then Library:RefreshPopupLayer() end
@@ -11039,63 +11096,33 @@ end
             CachedGlowAsset = Fallback
             return Fallback
         end
+        -- v31: glow is a child of the visual window, so it inherits the SAME
+        -- transform every rendered frame. The AutoSize overlays attach it to
+        -- a layout-independent child to avoid stretching their UIListLayouts.
         local function GlowTargets(Window)
             local Targets = {}
-            local function Add(Item)
+            local function Add(Item, HostItem)
                 local Root = Item and Item.Instance
-                if Root and Root:IsA('GuiObject') and Root.Parent then
-                    Targets[#Targets+1] = Root
+                local Host = (HostItem and HostItem.Instance) or Root
+                if Root and Root:IsA('GuiObject') and Host and Host:IsA('GuiObject') and Root.Parent then
+                    Targets[#Targets+1] = {Root=Root, Host=Host}
                 end
             end
             Add(Window.Items and Window.Items.MainFrame)
             local Watermark = rawget(Window, 'Watermark')
-            Add(type(Watermark)=='table' and Watermark.Items and Watermark.Items.Watermark)
+            if type(Watermark)=='table' and Watermark.Items then
+                Add(Watermark.Items.Watermark, Watermark.Items.Logo)
+            end
             local KeybindList = rawget(Window, 'KeybindList')
-            Add(type(KeybindList)=='table' and KeybindList.Items and KeybindList.Items.KeybindList)
+            if type(KeybindList)=='table' and KeybindList.Items then
+                Add(KeybindList.Items.KeybindList, KeybindList.Items.Top)
+            end
             local ESPPreview = rawget(Window, 'ESPPreview')
-            Add(type(ESPPreview)=='table' and ESPPreview.Items and ESPPreview.Items.ESPPreview)
-            local Mascot = rawget(Window, 'Mascot')
-            Add(type(Mascot)=='table' and Mascot.Items and Mascot.Items.Image)
+            if type(ESPPreview)=='table' and ESPPreview.Items then
+                Add(ESPPreview.Items.ESPPreview)
+            end
+            -- Mascot intentionally excluded. No glow on images/characters.
             return Targets
-        end
-
-        -- Animate glow with the associated overlay. No UIScale or text changes.
-        Library.OverlayVisibilityStates = setmetatable({}, {__mode='k'})
-        Library.SetOverlayGlowVisibility = function(Self, Root, Visible, Duration)
-            Library.OverlayVisibilityStates[Root] = Visible == true
-            local Entry = Library.OuterGlowMap and Library.OuterGlowMap[Root]
-            if not Entry or not Entry.Image or not Entry.Image.Parent then return end
-            local Image = Entry.Image
-            Entry.AnimationToken = (Entry.AnimationToken or 0) + 1
-            local Token = Entry.AnimationToken
-            if Entry.FadeTween then
-                pcall(function() Entry.FadeTween:Cancel() end)
-                Entry.FadeTween = nil
-            end
-            local Want = Visible == true and Library.MenuGlowEnabled == true
-            Entry.Desired = Want
-            Entry.IsAnimating = true
-            if Want then Image.Visible = true end
-            local TargetTransparency = Want and (1 - Library.MenuGlowStrength / 100) or 1
-            local Time = tonumber(Duration) or 0.25
-            if Time > 0 and Image.Parent and Image.Visible then
-                local Tween = TweenService:Create(Image,
-                    TweenInfo.new(Time, Enum.EasingStyle.Quart,
-                        Want and Enum.EasingDirection.Out or Enum.EasingDirection.In),
-                    {ImageTransparency = TargetTransparency})
-                Entry.FadeTween = Tween
-                Tween:Play()
-                Tween.Completed:Connect(function()
-                    if Entry.AnimationToken ~= Token then return end
-                    Entry.IsAnimating = false
-                    Entry.FadeTween = nil
-                    if not Want and Image.Parent then Image.Visible = false end
-                end)
-            else
-                Image.ImageTransparency = TargetTransparency
-                Entry.IsAnimating = false
-                if not Want then Image.Visible = false end
-            end
         end
 
         Library.SetMenuGlow = function(Self, _Ignored, Enabled)
@@ -11104,58 +11131,65 @@ end
             local WasToggled = WasEnabled ~= Library.MenuGlowEnabled
             local Window = Library.ActiveWindow
             if not Window or not Window.Items or not Library.Holder then return end
-            for _, Root in ipairs(GlowTargets(Window)) do
+
+            for _, Target in ipairs(GlowTargets(Window)) do
+                local Root, Host = Target.Root, Target.Host
                 local Entry = Library.OuterGlowMap[Root]
-                if not Entry or not Entry.Image or not Entry.Image.Parent then
-                    -- Always create a sibling of the target, not a child.
-                    -- This avoids UIListLayout/AutomaticSize feedback and keeps
-                    -- it in the same coordinate system during dragging.
+                if not Entry or not Entry.Image or not Entry.Image.Parent or Entry.Host ~= Host then
+                    if Entry and Entry.Image then pcall(function() Entry.Image:Destroy() end) end
                     local Image = Instance.new('ImageLabel')
-                    Image.Name = 'MimisenseSoftGlow_v27'
+                    Image.Name = 'MimisenseAttachedGlow_v31'
                     Image.BackgroundTransparency = 1
                     Image.BorderSizePixel = 0
                     Image.Active = false
                     Image.Selectable = false
-                    Image.ZIndex = 0
+                    Image.ZIndex = -1
                     Image.Image = ResolveSoftGlow()
                     Image.ImageColor3 = Library.Theme['Accent']
                     Image.ImageTransparency = 1 - Library.MenuGlowStrength / 100
                     Image.ScaleType = Enum.ScaleType.Slice
                     Image.SliceCenter = Rect.new(32,32,96,96)
                     Image.SliceScale = 1
-                    Image.Parent = Root.Parent
-                    Entry = {Image=Image}
+                    -- Parent to the actual moving frame (not its ScreenGui).
+                    -- No absolute-coordinate updates on every drag frame.
+                    Image.Parent = Host
+                    Entry = {Image=Image, Host=Host}
                     Library.OuterGlowMap[Root] = Entry
-                    local function Sync()
-                        if not Root.Parent or not Image.Parent then return end
-                        if Image.Parent ~= Root.Parent then Image.Parent = Root.Parent end
+
+                    local function SyncGeometry()
+                        if not Root.Parent or not Host.Parent or not Image.Parent then return end
                         local Pad = Library.MenuGlowPadding
-                        local Anchor = Root.AnchorPoint
-                        -- Position is always parent-local. No global coordinates,
-                        -- no RenderStepped and no Tween lag on dragging.
-                        Image.AnchorPoint = Anchor
-                        Image.Position = Root.Position + UDim2.fromOffset(
-                            (2*Anchor.X-1)*Pad, (2*Anchor.Y-1)*Pad)
-                        local S = Root.AbsoluteSize
-                        Image.Size = UDim2.fromOffset(math.max(1,S.X+2*Pad), math.max(1,S.Y+2*Pad))
-                        -- Visibility and opacity are owned by the fade controller.
-                        -- Only force hidden after the overlay is really invisible.
-                        if not Root.Visible then Image.Visible = false end
+                        -- When Host == Root, normalized scale tracks both position
+                        -- AND size automatically without any RenderStepped handler.
+                        if Host == Root then
+                            Image.Position = UDim2.fromOffset(-Pad,-Pad)
+                            Image.Size = UDim2.new(1,Pad*2,1,Pad*2)
+                        else
+                            -- Watermark/Hotkeys have AutomaticSize layouts.
+                            -- This geometry is only their LOCAL relative offset;
+                            -- dragging the parent moves both in the same frame.
+                            local Delta = Root.AbsolutePosition - Host.AbsolutePosition
+                            Image.Position = UDim2.fromOffset(math.floor(Delta.X-Pad+0.5),math.floor(Delta.Y-Pad+0.5))
+                            local Size = Root.AbsoluteSize
+                            Image.Size = UDim2.fromOffset(math.max(1,math.floor(Size.X+2*Pad+0.5)),math.max(1,math.floor(Size.Y+2*Pad+0.5)))
+                        end
                     end
-                    Entry.Sync = Sync
-                    Entry.JustCreated = true
-                    Library:Connect(Root:GetPropertyChangedSignal('Position'), Sync)
-                    Library:Connect(Root:GetPropertyChangedSignal('AnchorPoint'), Sync)
-                    Library:Connect(Root:GetPropertyChangedSignal('AbsoluteSize'), Sync)
-                    Library:Connect(Root:GetPropertyChangedSignal('Visible'), Sync)
-                    Library:Connect(Root:GetPropertyChangedSignal('Parent'), function()
-                        if Root.Parent then Sync() else Image:Destroy() end
-                    end)
+                    Entry.Sync = SyncGeometry
+                    if Host ~= Root then
+                        Library:Connect(Root:GetPropertyChangedSignal('AbsoluteSize'), SyncGeometry)
+                        Library:Connect(Host:GetPropertyChangedSignal('Size'), SyncGeometry)
+                    end
                     Library:Connect(Root.Destroying, function()
                         Library.OuterGlowMap[Root] = nil
                         if Image.Parent then Image:Destroy() end
                     end)
+                    Library:Connect(Host.Destroying, function()
+                        Library.OuterGlowMap[Root] = nil
+                        if Image.Parent then Image:Destroy() end
+                    end)
+                    Entry.JustCreated = true
                 end
+
                 local Image = Entry.Image
                 Image.ImageColor3 = Library.Theme['Accent']
                 Entry.Sync()
@@ -11165,7 +11199,7 @@ end
                         and Library.OverlayVisibilityStates[Root] ~= false
                     Entry.Desired = Desired
                     Image.Visible = Desired
-                    Image.ImageTransparency = Desired and (1 - Library.MenuGlowStrength / 100) or 1
+                    Image.ImageTransparency = Desired and (1-Library.MenuGlowStrength/100) or 1
                 elseif WasToggled then
                     Library:SetOverlayGlowVisibility(Root,
                         Root.Visible and Library.OverlayVisibilityStates[Root] ~= false, 0.26)
@@ -11173,7 +11207,7 @@ end
                     local Desired = Library.MenuGlowEnabled and Root.Visible
                         and Library.OverlayVisibilityStates[Root] ~= false
                     Image.Visible = Desired
-                    Image.ImageTransparency = Desired and (1 - Library.MenuGlowStrength / 100) or 1
+                    Image.ImageTransparency = Desired and (1-Library.MenuGlowStrength/100) or 1
                 end
             end
         end
