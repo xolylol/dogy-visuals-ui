@@ -39,7 +39,7 @@ local GuiInset = GuiService:GetGuiInset().Y
 local Mouse = cloneref(LocalPlayer:GetMouse())
 
 local Library = {
-    BuildVersion = "2026.10.29-v18-popup-input-fixes",
+    BuildVersion = "2026.10.29-v21-default-startup-theme",
     Flags = { },
 
     MenuKeybind = tostring(Enum.KeyCode.X),
@@ -231,6 +231,18 @@ local Library = {
     end
 
     local Themes = {
+        -- This is the shipped theme for every first-time user.
+        -- Window.Theme, Library:SetStartupTheme(), or a saved default can override it.
+        ["Default"] = {
+            ["Background"] = Color3.fromRGB(26, 20, 19),
+            ["Inline"] = Color3.fromRGB(33, 26, 24),
+            ["Tab"] = Color3.fromRGB(42, 33, 30),
+            ["Text"] = Color3.fromRGB(245, 232, 222),
+            ["Inactive Text"] = Color3.fromRGB(150, 128, 116),
+            ["Accent"] = Color3.fromRGB(232, 150, 130),
+            ["Outline"] = Color3.fromRGB(52, 41, 37),
+            ["Hovered Element"] = Color3.fromRGB(62, 49, 44),
+        },
         ["Preset"] = {
             ["Background"] = Color3.fromRGB(20, 22, 24),
             ["Inline"] = Color3.fromRGB(24, 27, 29),
@@ -333,7 +345,7 @@ local Library = {
         },
     }
 
-    local ThemeOrder = { "Preset", "Sky", "Magma", "Sand", "Navy", "Emerald", "Rose", "Midnight", "Coral", "Mono" }
+    local ThemeOrder = { "Default", "Preset", "Sky", "Magma", "Sand", "Navy", "Emerald", "Rose", "Midnight", "Coral", "Mono" }
 
     Library.Themes = Themes
 
@@ -344,12 +356,27 @@ local Library = {
         ["Configs"] = true, ["ConfigName"] = true, ["ThemeProfiles"] = true, ["ThemeName"] = true,
         -- interface settings live in ui_state.json, not in configs
         ["UI/SearchBar"] = true, ["UI/Scale"] = true, ["UI/Opacity"] = true, ["UI/Font"] = true,
-        ["UI/NotifSide"] = true, ["UI/ThemeAnimation"] = true, ["UI/RememberUI"] = true,
+        ["UI/NotifSide"] = true, ["UI/NotificationDuration"] = true, ["UI/ThemeAnimation"] = true, ["UI/RememberUI"] = true,
         ["UI/ScalePreset"] = true,
         ["UI/WatermarkFields"] = true, ["UI/KeybindListMode"] = true, ["UI/ImportString"] = true
     }
     Library.ThemeOrder = ThemeOrder
-    Library.Theme = table.clone(Themes["Preset"])
+    Library.StartupTheme = "Default"
+    Library.Theme = table.clone(Themes["Default"])
+
+    -- Developers can set a global startup theme BEFORE creating a window:
+    -- Library:SetStartupTheme("Sky")
+    -- This sets the starting palette, not a disk preference or a forced theme on every restart.
+    Library.SetStartupTheme = function(Self, Name)
+        if type(Name) ~= "string" or Name == "" then return false end
+        if Name == "defoult" or Name == "default" then Name = "Default" end
+        if not Themes[Name] and not Library:ReadTheme(Name) then
+            warn("[Dogy] Unknown startup theme: " .. tostring(Name))
+            return false
+        end
+        Library.StartupTheme = Name
+        return true
+    end
 
     -- applies a { [ThemeKey] = Color3 } table: recolors the UI and syncs the Theming colorpickers
     -- Apply a complete theme in a single pass, avoiding multiple full-UI walks.
@@ -507,6 +534,7 @@ local Library = {
 
     -- preset or custom theme by name
     Library.ApplyNamedTheme = function(Self, Name)
+        if Name == "defoult" or Name == "default" then Name = "Default" end
         if Themes[Name] then
             return Library:ApplyTheme(Name)
         end
@@ -4371,327 +4399,209 @@ Library.Watermark = function(Self, Params)
 
         Library.NotificationCounter = 0
         Library.NotificationLimit = 6
+        -- Default lifetime for all notifications that do not supply Duration.
+        Library.NotificationDuration = 3
 
-        -- Library:Notification({Name = "Saved", Description = "Config created.", Type = "Success", Duration = 3})
-        --   Type: "Success" | "Warning" | "Error" | nil (theme accent). Color overrides Type.
-        -- Hover pauses the timer, click dismisses, an identical message restarts instead of stacking.
+        -- Notification v20: fully opaque theme-linked card, no icon or top strip.
+        -- Title always comes from the Window.Name. Duration comes from Menu Options
+        -- unless the caller explicitly passes Duration. Cards stack in NotificationStack.
         Library.Notification = function(Self, Params)
-            Params = Params or { }
-
+            Params = Params or {}
             if Library.NotificationEnabled == false then return nil end
             if Library.PlayNotificationSound then Library:PlayNotificationSound() end
+
             local Window = Library.ActiveWindow
-            local Name = tostring(Window and Window.Name or "Dogy Visuals")
-            local Subject = tostring(Params.Name or Params.name or Params.Title or Params.title or "")
+            local Title = tostring(Window and Window.Name or "Dogy Visuals")
             local Description = tostring(Params.Description or Params.description or "")
-            if Subject ~= "" and Subject ~= Name then
-                Description = Subject .. (Description ~= "" and ("  ·  " .. Description) or "")
+            if Description == "" then
+                Description = tostring(Params.Name or Params.name or Params.Title or Params.title or "")
             end
-            local Duration = math.max(tonumber(Params.Duration or Params.duration) or 4, 0.5)
-            local Color = Library.Theme["Accent"]
-            local Key = Name .. "\n" .. Description
+            local Lifetime = math.clamp(tonumber(Params.Duration or Params.duration)
+                or tonumber(Library.NotificationDuration) or 3, 0.5, 60)
+            local Key = Title .. "\n" .. Description
 
             for _, Existing in Library.Notifications do
-                if Existing.Key == Key and not Existing.Removing then
+                if Existing.Key == Key and not Existing.Removing and not Existing.Closing then
                     Existing:Restart()
                     return Existing
                 end
             end
 
-            local Width = 308
-            local SlideOffset = Library.NotificationSide == "Left" and -36 or 36
+            local Width = 276
+            local SlideOffset = Library.NotificationSide == "Left" and -28 or 28
             local Notification = {
-                Key = Key,
-                Removing = false,
-                Closing = false,
-                Paused = false,
-                Elapsed = 0,
-                Duration = Duration,
-                Items = { }
+                Key = Key, Removing = false, Closing = false,
+                Paused = false, Elapsed = 0, Duration = Lifetime, Items = {}
             }
             local Items = Notification.Items
-
             Library.NotificationCounter += 1
 
-            Items["Holder"] = Library:Create("Frame", {
-                Name = "\0",
-                Parent = Library.NotificationStack.Instance,
-                BackgroundTransparency = 1,
-                BorderSizePixel = 0,
+            Items.Holder = Library:Create("Frame", {
+                Name = "DogyNotificationSlot", Parent = Library.NotificationStack.Instance,
+                BackgroundTransparency = 1, BorderSizePixel = 0,
                 Size = UDim2.new(0, Width, 0, 0),
                 AutomaticSize = Enum.AutomaticSize.Y,
                 LayoutOrder = Library.NotificationCounter
             })
-
-            Items["Card"] = Library:Create("Frame", {
-                Name = "\0",
-                Parent = Items["Holder"].Instance,
-                BorderSizePixel = 0,
-                ClipsDescendants = true,
-                Position = UDim2.new(0, SlideOffset, 0, 0),
+            Items.Card = Library:Create("Frame", {
+                Name = "DogyNotificationCard", Parent = Items.Holder.Instance,
+                BorderSizePixel = 0, ClipsDescendants = true,
+                Position = UDim2.fromOffset(SlideOffset, 0),
                 Size = UDim2.new(1, 0, 0, 0),
                 AutomaticSize = Enum.AutomaticSize.Y,
-                BackgroundTransparency = 1,
-                BackgroundColor3 = Library.Theme["Tab"]
-            }):AddToTheme({BackgroundColor3 = "Tab"})
-
+                BackgroundTransparency = 0,
+                BackgroundColor3 = Library.Theme["Background"]
+            }):AddToTheme({BackgroundColor3 = "Background"})
             Library:Create("UICorner", {
-                Name = "\0",
-                Parent = Items["Card"].Instance,
+                Name = "DogyNotificationCorner", Parent = Items.Card.Instance,
                 CornerRadius = UDim.new(0, 8)
             })
-
-            Items["Stroke"] = Library:Create("UIStroke", {
-                Name = "\0",
-                Parent = Items["Card"].Instance,
-                Color = Library.Theme["Outline"],
-                Transparency = 1,
-                Thickness = 1,
-                ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            Library:Create("UIStroke", {
+                Name = "DogyNotificationOutline", Parent = Items.Card.Instance,
+                Color = Library.Theme["Outline"], Transparency = 0,
+                Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border
             }):AddToTheme({Color = "Outline"})
 
-            Items["Accent"] = Library:Create("Frame", {
-                Name = "\0",
-                Parent = Items["Card"].Instance,
-                BorderSizePixel = 0,
-                Size = UDim2.new(1, 0, 0, 2),
-                BackgroundTransparency = 1,
-                BackgroundColor3 = Color
-            }):AddToTheme({BackgroundColor3 = "Accent"})
-
-            Items["IconBackground"] = Library:Create("Frame", {
-                Name = "\0", Parent = Items["Card"].Instance,
-                Position = UDim2.fromOffset(12, 14),
-                Size = UDim2.fromOffset(27, 27),
-                BorderSizePixel = 0, BackgroundTransparency = 1,
-                BackgroundColor3 = Library.Theme["Accent"]
-            }):AddToTheme({BackgroundColor3 = "Accent"})
-            Library:Create("UICorner", {
-                Name = "\0", Parent = Items["IconBackground"].Instance,
-                CornerRadius = UDim.new(0, 6)
-            })
-            Items["IconText"] = Library:Create("TextLabel", {
-                Name = "\0", Parent = Items["IconBackground"].Instance,
+            Items.Body = Library:Create("Frame", {
+                Name = "DogyNotificationBody", Parent = Items.Card.Instance,
                 BackgroundTransparency = 1, BorderSizePixel = 0,
-                Size = UDim2.new(1, 0, 1, 0),
-                Text = "i", FontFace = Library.Font,
-                TextSize = Library.FontSize + 2,
-                TextColor3 = Library.Theme["Background"], TextTransparency = 1,
-                TextXAlignment = Enum.TextXAlignment.Center
-            }):AddToTheme({TextColor3 = "Background"})
-
-            Items["Body"] = Library:Create("Frame", {
-                Name = "\0",
-                Parent = Items["Card"].Instance,
-                BackgroundTransparency = 1,
-                BorderSizePixel = 0,
-                Position = UDim2.new(0, 43, 0, 0),
-                Size = UDim2.new(1, -43, 0, 0),
+                Position = UDim2.fromOffset(0, 0),
+                Size = UDim2.new(1, 0, 0, 0),
                 AutomaticSize = Enum.AutomaticSize.Y
             })
-
             Library:Create("UIPadding", {
-                Name = "\0",
-                Parent = Items["Body"].Instance,
-                PaddingTop = UDim.new(0, 11),
-                PaddingBottom = UDim.new(0, 13),
-                PaddingLeft = UDim.new(0, 7),
-                PaddingRight = UDim.new(0, 12)
+                Name = "DogyNotificationPadding", Parent = Items.Body.Instance,
+                PaddingTop = UDim.new(0, 15),
+                PaddingBottom = UDim.new(0, 29),
+                PaddingLeft = UDim.new(0, 17),
+                PaddingRight = UDim.new(0, 17)
             })
-
             Library:Create("UIListLayout", {
-                Name = "\0",
-                Parent = Items["Body"].Instance,
-                Padding = UDim.new(0, 3),
-                SortOrder = Enum.SortOrder.LayoutOrder
+                Name = "DogyNotificationLayout", Parent = Items.Body.Instance,
+                Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder
             })
-
-            Items["Title"] = Library:Create("TextLabel", {
-                Name = "\0",
-                FontFace = Library.Font,
-                TextSize = Library.FontSize,
-                Parent = Items["Body"].Instance,
-                Text = Name,
-                TextColor3 = Library.Theme["Text"],
-                TextTransparency = 1,
-                TextWrapped = true,
-                TextXAlignment = Enum.TextXAlignment.Left,
-                BackgroundTransparency = 1,
-                BorderSizePixel = 0,
-                Size = UDim2.new(1, 0, 0, 0),
-                AutomaticSize = Enum.AutomaticSize.Y,
+            Items.Title = Library:Create("TextLabel", {
+                Name = "DogyNotificationTitle", Parent = Items.Body.Instance,
+                FontFace = Library.Font, TextSize = Library.FontSize + 3,
+                Text = Title, TextColor3 = Library.Theme["Text"],
+                TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left,
+                BackgroundTransparency = 1, BorderSizePixel = 0,
+                Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
                 LayoutOrder = 1
             }):AddToTheme({TextColor3 = "Text"})
-
-            Items["Description"] = Library:Create("TextLabel", {
-                Name = "\0",
-                FontFace = Library.Font,
-                TextSize = Library.FontSize - 1,
-                Parent = Items["Body"].Instance,
-                Text = Description,
-                Visible = Description ~= "",
-                TextColor3 = Library.Theme["Inactive Text"],
-                TextTransparency = 1,
-                TextWrapped = true,
-                TextXAlignment = Enum.TextXAlignment.Left,
-                BackgroundTransparency = 1,
-                BorderSizePixel = 0,
-                Size = UDim2.new(1, 0, 0, 0),
-                AutomaticSize = Enum.AutomaticSize.Y,
+            Items.Description = Library:Create("TextLabel", {
+                Name = "DogyNotificationDescription", Parent = Items.Body.Instance,
+                FontFace = Library.Font, TextSize = Library.FontSize + 5,
+                Text = Description, Visible = Description ~= "",
+                TextColor3 = Library.Theme["Text"],
+                TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left,
+                BackgroundTransparency = 1, BorderSizePixel = 0,
+                Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
                 LayoutOrder = 2
-            }):AddToTheme({TextColor3 = "Inactive Text"})
+            }):AddToTheme({TextColor3 = "Text"})
 
-            Items["Progress"] = Library:Create("Frame", {
-                Name = "\0",
-                Parent = Items["Card"].Instance,
+            Items.ProgressTrack = Library:Create("Frame", {
+                Name = "DogyNotificationProgressTrack", Parent = Items.Card.Instance,
                 AnchorPoint = Vector2.new(0, 1),
-                Position = UDim2.new(0, 0, 1, 0),
-                Size = UDim2.new(1, 0, 0, 2),
-                BorderSizePixel = 0,
-                BackgroundTransparency = 1,
-                BackgroundColor3 = Color,
+                Position = UDim2.new(0, 17, 1, -12),
+                Size = UDim2.new(1, -34, 0, 3),
+                BackgroundTransparency = 0,
+                BackgroundColor3 = Library.Theme["Outline"], BorderSizePixel = 0,
                 ZIndex = 3
+            }):AddToTheme({BackgroundColor3 = "Outline"})
+            Library:Create("UICorner", {Parent = Items.ProgressTrack.Instance,
+                CornerRadius = UDim.new(1, 0)})
+            Items.Progress = Library:Create("Frame", {
+                Name = "DogyNotificationProgress", Parent = Items.ProgressTrack.Instance,
+                Position = UDim2.fromScale(0, 0),
+                Size = UDim2.new(1, 0, 1, 0), BorderSizePixel = 0,
+                BackgroundColor3 = Library.Theme["Accent"],
+                BackgroundTransparency = 0, ZIndex = 4
             }):AddToTheme({BackgroundColor3 = "Accent"})
-
-            Items["Hit"] = Library:Create("TextButton", {
-                Name = "\0",
-                Parent = Items["Card"].Instance,
-                BackgroundTransparency = 1,
-                BorderSizePixel = 0,
-                Size = UDim2.new(1, 0, 1, 0),
-                Text = "",
-                ZIndex = 4
+            Library:Create("UICorner", {Parent = Items.Progress.Instance,
+                CornerRadius = UDim.new(1, 0)})
+            Items.Hit = Library:Create("TextButton", {
+                Name = "DogyNotificationHit", Parent = Items.Card.Instance,
+                BackgroundTransparency = 1, BorderSizePixel = 0,
+                Size = UDim2.fromScale(1, 1), Text = "", ZIndex = 5
             })
 
-            -- { instance, property, visible value }
-            local Fades = {
-                { Items["Card"].Instance, "BackgroundTransparency", 0 },
-                { Items["Stroke"].Instance, "Transparency", 0 },
-                { Items["Accent"].Instance, "BackgroundTransparency", 0 },
-                { Items["IconBackground"].Instance, "BackgroundTransparency", 0 },
-                { Items["IconText"].Instance, "TextTransparency", 0 },
-                { Items["Title"].Instance, "TextTransparency", 0 },
-                { Items["Description"].Instance, "TextTransparency", 0 },
-                { Items["Progress"].Instance, "BackgroundTransparency", 0 },
-            }
-
-            local InInfo = TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
-            local OutInfo = TweenInfo.new(0.28, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
-
-            local Alive = function()
-                return Library ~= nil and Items["Holder"].Instance.Parent ~= nil
+            local InInfo = TweenInfo.new(0.28, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+            local OutInfo = TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
+            local function Alive()
+                return Library ~= nil and Items.Holder.Instance.Parent ~= nil
             end
-
-            local Play = function(Info, Hidden)
-                for _, Entry in Fades do
-                    TweenService:Create(Entry[1], Info, {[Entry[2]] = Hidden and 1 or Entry[3]}):Play()
-                end
-            end
-
             local ProgressTween
-
             function Notification:Restart()
                 Notification.Elapsed = 0
-
-                if ProgressTween then
-                    ProgressTween:Cancel()
-                end
-
-                local Bar = Items["Progress"].Instance
-                Bar.Size = UDim2.new(1, 0, 0, 2)
-
-                ProgressTween = TweenService:Create(Bar, TweenInfo.new(Duration, Enum.EasingStyle.Linear), {
-                    Size = UDim2.new(0, 0, 0, 2)
+                if ProgressTween then ProgressTween:Cancel() end
+                local Bar = Items.Progress.Instance
+                Bar.Size = UDim2.new(1, 0, 1, 0)
+                ProgressTween = TweenService:Create(Bar, TweenInfo.new(Notification.Duration, Enum.EasingStyle.Linear), {
+                    Size = UDim2.new(0, 0, 1, 0)
                 })
                 ProgressTween:Play()
-
-                if Notification.Paused then
-                    ProgressTween:Pause()
-                end
+                if Notification.Paused then ProgressTween:Pause() end
             end
-
             function Notification:Dismiss()
                 Notification.Closing = true
             end
-
-            -- plain connections on purpose: they die with the instance, no need to track them
-            Items["Hit"].Instance.MouseEnter:Connect(function()
+            Library:Connect(Items.Hit.Instance.MouseEnter, function()
                 Notification.Paused = true
                 if ProgressTween then ProgressTween:Pause() end
             end)
-
-            Items["Hit"].Instance.MouseLeave:Connect(function()
+            Library:Connect(Items.Hit.Instance.MouseLeave, function()
                 Notification.Paused = false
                 if ProgressTween then ProgressTween:Play() end
             end)
-
-            Items["Hit"].Instance.MouseButton1Click:Connect(function()
+            Library:Connect(Items.Hit.Instance.MouseButton1Click, function()
                 Notification.Closing = true
             end)
 
             table.insert(Library.Notifications, Notification)
-
-            -- keep the stack short: oldest ones leave first
-            local Active = { }
-            for _, Value in Library.Notifications do
-                if not Value.Removing and not Value.Closing then
-                    table.insert(Active, Value)
+            local Active = {}
+            for _, Item in Library.Notifications do
+                if not Item.Removing and not Item.Closing then
+                    table.insert(Active, Item)
                 end
             end
             for Index = 1, #Active - Library.NotificationLimit do
                 Active[Index]:Dismiss()
             end
-
             task.spawn(function()
                 if not Alive() then return end
-
-                Play(InInfo, false)
-                TweenService:Create(Items["Card"].Instance, InInfo, {Position = UDim2.new(0, 0, 0, 0)}):Play()
+                TweenService:Create(Items.Card.Instance, InInfo, {Position = UDim2.fromOffset(0, 0)}):Play()
                 Notification:Restart()
-
                 local Last = os.clock()
-
-                while Alive() and not Notification.Closing and Notification.Elapsed < Duration do
+                while Alive() and not Notification.Closing and Notification.Elapsed < Notification.Duration do
                     task.wait(0.05)
-
                     local Now = os.clock()
                     if not Notification.Paused then
                         Notification.Elapsed += Now - Last
                     end
                     Last = Now
                 end
-
                 if not Alive() then return end
-
                 Notification.Removing = true
-
                 local Index = table.find(Library.Notifications, Notification)
-                if Index then
-                    table.remove(Library.Notifications, Index)
-                end
-
-                Play(OutInfo, true)
-                TweenService:Create(Items["Card"].Instance, OutInfo, {Position = UDim2.new(0, SlideOffset, 0, 0)}):Play()
+                if Index then table.remove(Library.Notifications, Index) end
+                TweenService:Create(Items.Card.Instance, OutInfo, {
+                    Position = UDim2.fromOffset(SlideOffset, 0)
+                }):Play()
                 task.wait(OutInfo.Time)
-
                 if not Alive() then return end
-
-                local Holder = Items["Holder"].Instance
+                local Holder = Items.Holder.Instance
                 Holder.AutomaticSize = Enum.AutomaticSize.None
-                Holder.Size = UDim2.new(0, Width, 0, Holder.AbsoluteSize.Y)
+                Holder.Size = UDim2.fromOffset(Width, Holder.AbsoluteSize.Y)
                 Holder.ClipsDescendants = true
-
-                local Collapse = TweenService:Create(Holder, TweenInfo.new(0.22, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                    Size = UDim2.new(0, Width, 0, 0)
+                local Collapse = TweenService:Create(Holder,
+                    TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                    Size = UDim2.fromOffset(Width, 0)
                 })
                 Collapse:Play()
                 Collapse.Completed:Wait()
-
-                if Holder.Parent then
-                    Holder:Destroy()
-                end
+                if Holder.Parent then Holder:Destroy() end
             end)
-
             return Notification
         end
 
@@ -5080,7 +4990,46 @@ Library.Watermark = function(Self, Params)
         Library.Window = function(Self, Params)
             Params = Params or { }
 
+            -- Choose the palette BEFORE creating any GUI objects, eliminating
+            -- the startup flash of the previous theme.
+            -- Priority: Window.Theme > saved default.txt > SetStartupTheme > Default.
+            local ExplicitTheme = Params.Theme
+            if ExplicitTheme == nil then ExplicitTheme = Params.theme end
+            local HasThemeOverride = ExplicitTheme ~= nil
+            local StartupThemeData = type(ExplicitTheme) == "table" and ExplicitTheme or nil
+            local ThemeName = (type(ExplicitTheme) == "string" and ExplicitTheme)
+                or Library:GetDefaultTheme()
+                or Library.StartupTheme
+                or "Default"
+            if ThemeName == "default" or ThemeName == "defoult" then ThemeName = "Default" end
+            if not Library:ApplyNamedTheme(ThemeName) then
+                warn("[Dogy] Startup theme " .. tostring(ThemeName) .. " not found; using Default")
+                ThemeName = "Default"
+                Library:ApplyTheme("Default")
+            end
+            if StartupThemeData then
+                -- Custom colors override the base theme; unspecified keys stay Default.
+                Library:ApplyTheme("Default")
+                Library:ApplyThemeData(StartupThemeData)
+                ThemeName = "Default"
+            end
+
+            -- Optional per-window font, applied before creating any text labels.
+            local RequestedFont = Params.Font or Params.font
+            if type(RequestedFont) == "string" and RequestedFont ~= "" then
+                if table.find(Library.FontChoices or {}, RequestedFont) then
+                    Library:SetUIFont(RequestedFont)
+                else
+                    warn("[Dogy] Unknown window font: " .. RequestedFont)
+                    RequestedFont = nil
+                end
+            end
+
             local Window = {
+                StartupTheme = ThemeName,
+                StartupThemeData = StartupThemeData,
+                HasStartupThemeOverride = HasThemeOverride,
+                StartupFont = RequestedFont,
                 Name = Params.Name or Params.name or "Window",
                 SubName = Params.SubName or Params.subname or "",
                 Logo = Params.Logo or Params.logo or "rbxassetid://87164893498141",
@@ -10923,63 +10872,100 @@ end
             end
         end
 
-        -- ---------- accent-linked menu glow ----------
+        -- ---------- soft outer glow (one shadow per window, never internal lines) ----------
         Library.MenuGlowStrength = Library.MenuGlowStrength or 35
         Library.MenuGlowEnabled = Library.MenuGlowEnabled ~= false
-        -- v19: one shared glow controller for the main window and all overlays.
-        -- UIStrokes stay bound to Accent, so manual colorpicker edits recolor them live.
+        Library.SoftGlowMap = setmetatable({}, {__mode = "k"})
+        local ShadowAsset = "rbxassetid://1316045217" -- soft 9-slice Roblox shadow
+        local GlowBounds = Rect.new(10, 10, 118, 118)
+
+        local function GlowVisible(Object)
+            local Parent = Object
+            while Parent and Parent ~= Library.Holder.Instance do
+                if Parent:IsA("GuiObject") and not Parent.Visible then
+                    return false
+                end
+                Parent = Parent.Parent
+            end
+            return Parent == Library.Holder.Instance
+        end
+
         Library.SetMenuGlow = function(Self, Strength, Enabled)
             Strength = math.clamp(tonumber(Strength) or 35, 0, 100)
             Library.MenuGlowStrength = Strength
             Library.MenuGlowEnabled = Enabled ~= false
-
             local Window = Library.ActiveWindow
-            if not Window or not Window.Items then return end
-            local Accent = Library.Theme["Accent"] or Color3.fromRGB(179, 165, 255)
+            if not Window or not Window.Items or not Library.Holder then return end
+
             local Targets = {}
-            local function Add(Object, Multiplier)
+            local function Add(Item, Weight)
+                local Object = Item and Item.Instance
                 if Object and Object:IsA("GuiObject") and Object.Parent then
-                    table.insert(Targets, {Object = Object, Multiplier = Multiplier or 1})
+                    table.insert(Targets, {Object = Object, Weight = Weight or 1})
                 end
             end
-            local Main = Window.Items.MainFrame
-            Add(Main and Main.Instance, 1)
-
+            Add(Window.Items.MainFrame, 1)
             local Watermark = rawget(Window, "Watermark")
             local WatermarkItems = type(Watermark) == "table" and Watermark.Items
-            Add(WatermarkItems and WatermarkItems.Watermark and WatermarkItems.Watermark.Instance, 0.72)
-
+            Add(WatermarkItems and WatermarkItems.Watermark, 0.85)
             local KeybindList = rawget(Window, "KeybindList")
             local KeyItems = type(KeybindList) == "table" and KeybindList.Items
-            Add(KeyItems and KeyItems.Top and KeyItems.Top.Instance, 0.70)
-            Add(KeyItems and KeyItems.Content and KeyItems.Content.Instance, 0.58)
-
+            -- Only the OUTER root: no glow on Top/Content separator.
+            Add(KeyItems and KeyItems.KeybindList, 0.85)
             local ESPPreview = rawget(Window, "ESPPreview")
             local ESPItems = type(ESPPreview) == "table" and ESPPreview.Items
-            Add(ESPItems and ESPItems.ESPPreview and ESPItems.ESPPreview.Instance, 0.78)
+            Add(ESPItems and ESPItems.ESPPreview, 0.85)
 
-            local Specs = {
-                {Name = "DogyAccentGlowWide", Thickness = 5 + Strength * 0.16, Transparency = 0.995 - Strength * 0.0010},
-                {Name = "DogyAccentGlowSoft", Thickness = 3 + Strength * 0.075, Transparency = 0.98 - Strength * 0.0015},
-                {Name = "DogyAccentGlow", Thickness = 1 + Strength * 0.015, Transparency = 0.96 - Strength * 0.0020},
-            }
             for _, Target in Targets do
-                for _, Spec in Specs do
-                    local Object = Target.Object
-                    local Glow = Object:FindFirstChild(Spec.Name)
-                    if not Glow then
-                        Glow = Instance.new("UIStroke")
-                        Glow.Name = Spec.Name
-                        Glow.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-                        Glow.LineJoinMode = Enum.LineJoinMode.Round
-                        Glow.Parent = Object
-                        Library.AddToTheme({Instance = Glow}, {Color = "Accent"})
-                    end
-                    Glow.Color = Accent
-                    Glow.Thickness = Spec.Thickness * Target.Multiplier
-                    Glow.Transparency = math.clamp(Spec.Transparency, 0.05, 1)
-                    Glow.Enabled = Library.MenuGlowEnabled and Strength > 0
+                local Object = Target.Object
+                -- Clean up strokes from older glow controllers if present.
+                for _, OldName in {"DogyAccentGlowWide", "DogyAccentGlowSoft", "DogyAccentGlow"} do
+                    local Old = Object:FindFirstChild(OldName)
+                    if Old then Old:Destroy() end
                 end
+                local Info = Library.SoftGlowMap[Object]
+                if not Info or not Info.Image.Parent then
+                    local Image = Instance.new("ImageLabel")
+                    Image.Name = "DogySoftOuterGlow"
+                    Image.Parent = Library.Holder.Instance
+                    Image.BackgroundTransparency = 1
+                    Image.BorderSizePixel = 0
+                    Image.Active = false
+                    Image.Image = ShadowAsset
+                    Image.ScaleType = Enum.ScaleType.Slice
+                    Image.SliceCenter = GlowBounds
+                    Image.ImageColor3 = Library.Theme["Accent"]
+                    Image.ZIndex = 0 -- behind all window frames and their contents
+                    Library.AddToTheme({Instance = Image}, {ImageColor3 = "Accent"})
+                    Info = {Image = Image, Object = Object, Weight = Target.Weight}
+                    Library.SoftGlowMap[Object] = Info
+                    local function UpdatePosition()
+                        if not Object.Parent or not Image.Parent then return end
+                        local Padding = 22
+                        local Position = Object.AbsolutePosition
+                        local Size = Object.AbsoluteSize
+                        Image.Position = UDim2.fromOffset(Position.X - Padding, Position.Y - Padding)
+                        Image.Size = UDim2.fromOffset(Size.X + Padding * 2, Size.Y + Padding * 2)
+                        Image.Visible = Library.MenuGlowEnabled and Library.MenuGlowStrength > 0
+                            and GlowVisible(Object) and Size.X > 0 and Size.Y > 0
+                    end
+                    Info.UpdatePosition = UpdatePosition
+                    Library:Connect(Object:GetPropertyChangedSignal("AbsolutePosition"), UpdatePosition)
+                    Library:Connect(Object:GetPropertyChangedSignal("AbsoluteSize"), UpdatePosition)
+                    Library:Connect(Object:GetPropertyChangedSignal("Visible"), UpdatePosition)
+                    local Parent = Object.Parent
+                    while Parent and Parent ~= Library.Holder.Instance do
+                        if Parent:IsA("GuiObject") then
+                            Library:Connect(Parent:GetPropertyChangedSignal("Visible"), UpdatePosition)
+                        end
+                        Parent = Parent.Parent
+                    end
+                end
+                Info.Weight = Target.Weight
+                Info.Image.ImageColor3 = Library.Theme["Accent"]
+                -- One soft textured falloff; no hard nested UIStroke rectangles.
+                Info.Image.ImageTransparency = math.clamp(0.90 - Strength * 0.004 * Info.Weight, 0.50, 0.96)
+                Info.UpdatePosition()
             end
         end
 
@@ -11443,9 +11429,12 @@ end
                     Name = "Theme",
                     Flag = "SelectedTheme",
                     Items = Library.ThemeOrder,
-                    Default = "Preset",
+                    Default = Library.Themes[Window.StartupTheme] and Window.StartupTheme or "Default",
                     Callback = function(Value)
-                        if Library:ApplyTheme(Value) and ThemeReady and not SilentTheme then
+                        -- Dropdown constructors can fire their callback immediately.
+                        -- Do not overwrite the developer's chosen theme while building UI Settings.
+                        if not ThemeReady then return end
+                        if Library:ApplyTheme(Value) and not SilentTheme then
                             Notify("Success", "Theme applied", Value)
                         end
                     end
@@ -11491,10 +11480,10 @@ end
                 local ThemeSelected
                 local ThemeName
 
-                local DefaultLabel = ProfilesSection:Label({Name = "Default theme: none"})
+                local DefaultLabel = ProfilesSection:Label({Name = "Default theme: Default"})
 
                 local RefreshDefaultLabel = function()
-                    DefaultLabel:SetText("Default theme: " .. (Library:GetDefaultTheme() or "none"))
+                    DefaultLabel:SetText("Default theme: " .. (Library:GetDefaultTheme() or Library.StartupTheme or "Default"))
                 end
 
                 local ThemeList = ProfilesSection:ListBox({
@@ -11802,7 +11791,7 @@ end
                     Default = math.floor((1 - (State.Transparency or 0)) * 100 + 0.5), Suffix = "%",
                     Callback = function(Value) Library:SetWindowOpacity(1 - Value / 100) Save("Transparency", 1 - Value / 100) end})
                 Interface:Dropdown({Name = "Font", Flag = "UI/Font", Items = Library.FontChoices,
-                    Default = State.Font or "Figtree", Callback = function(Value) Library:SetUIFont(Value) Save("Font", Value) end})
+                    Default = Window.StartupFont or State.Font or "Figtree", Callback = function(Value) Library:SetUIFont(Value) Save("Font", Value) end})
                 Interface:Toggle({Name = "Theme Animation", Flag = "UI/ThemeAnimation",
                     Default = State.ThemeAnimation ~= false, Callback = function(Value)
                         Library.ThemeAnimation = Value
@@ -11815,10 +11804,16 @@ end
                     Default = Library.NotificationEnabled ~= false,
                     Callback = function(Value) Library.NotificationEnabled = Value end})
                 local Notification = Panel(NotificationRow, "Notification Options")
+                Library.NotificationDuration = math.clamp(tonumber(State.NotificationDuration) or 3, 1, 15)
                 Notification:Button({Name = "Test Notification", Callback = function()
-                    local Duration = Library.NotificationDurationRange and Library.NotificationDurationRange.Min or 4
-                    Library:Notification({Description = "Notification preview", Duration = Duration})
+                    Library:Notification({Description = "Notification preview"})
                 end})
+                Notification:Slider({Name = "Duration", Flag = "UI/NotificationDuration",
+                    Min = 1, Max = 15, Default = Library.NotificationDuration, Step = 1,
+                    Suffix = "s", Callback = function(Value)
+                        Library.NotificationDuration = math.clamp(tonumber(Value) or 3, 1, 15)
+                        Save("NotificationDuration", Library.NotificationDuration)
+                    end})
                 Notification:Dropdown({Name = "Notification Side", Flag = "UI/NotifSide",
                     Items = {"Right", "Left"}, Default = State.NotifSide or "Right",
                     Callback = function(Value) Library:SetNotificationSide(Value) Save("NotifSide", Value) end})
@@ -11831,17 +11826,6 @@ end
                 Notification:Slider({Name = "Sound Volume", Flag = "UI/NotificationVolume",
                     Min = 0, Max = 100, Default = 55, Suffix = "%",
                     Callback = function(Value) Library.NotificationVolume = Value / 100 end})
-                if type(Notification.RangeSlider) == "function" then
-                    Notification:RangeSlider({Name = "Duration Range", Flag = "UI/NotificationDurationRange",
-                        Min = 1, Max = 12, Default = {Min = 3, Max = 7}, Suffix = "s",
-                        Callback = function(A, B)
-                            if type(A) == "table" then
-                                Library.NotificationDurationRange = A
-                            else
-                                Library.NotificationDurationRange = {Min = A, Max = B}
-                            end
-                        end})
-                end
 
                 local GlowRow = Menu:Toggle({Name = "Glow", Flag = "UI/GlowEnabled",
                     Default = Library.MenuGlowEnabled ~= false,
@@ -12041,22 +12025,29 @@ end
                 end
             end
 
-            do -- Default theme (applied after the autoload config, so it wins over a theme stored in it)
-                local Name = Library:GetDefaultTheme()
+            do -- Apply the selected startup palette last, after optional autoload config.
+                -- An explicit Window.Theme takes precedence over a saved default theme.
+                -- With no override and no saved preference, Default is always the initial theme.
+                local Name = Window.HasStartupThemeOverride and Window.StartupTheme
+                    or Library:GetDefaultTheme()
+                    or Window.StartupTheme
+                    or "Default"
+                SilentTheme = true
 
-                if Name then
-                    SilentTheme = true
-
-                    if Library:ApplyNamedTheme(Name) then
-                        if Library.Themes[Name] then
-                            SetFlag("SelectedTheme", Name)
-                        end
-                    else
-                        Notify("Warning", "Default theme", 'Couldn\'t load "' .. Name .. '".')
+                if Window.StartupThemeData then
+                    Library:ApplyTheme("Default")
+                    Library:ApplyThemeData(Window.StartupThemeData)
+                elseif Library:ApplyNamedTheme(Name) then
+                    if Library.Themes[Name] then
+                        SetFlag("SelectedTheme", Name)
                     end
-
-                    SilentTheme = false
+                else
+                    warn("[Dogy] Cannot restore startup theme " .. tostring(Name))
+                    Library:ApplyTheme("Default")
+                    SetFlag("SelectedTheme", "Default")
                 end
+
+                SilentTheme = false
             end
 
             return SettingsPage
