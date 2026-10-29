@@ -10786,6 +10786,9 @@ end
         -- Window:Init() builds the "UI Settings" page: profiles, autoload, theming,
         -- mascot (picker / position / rotation / size / sounds / reset) and menu options.
         -- Call it LAST, after every page, so autoload can restore all flags.
+        -- Used by public examples to avoid duplicating the built-in mascot.
+        Library.MascotInitFixed = true
+
         Library.Init = function(Self)
             local Window = (Self ~= Library and Self) or Library.ActiveWindow
 
@@ -10800,7 +10803,11 @@ end
 
             -- Built-in mascot belongs to the library, not the consumer example.
             -- Consumers may still override it by calling Window:Mascot(...) before :Init().
-            if not Window.Mascot and Library.DefaultMascotEnabled ~= false then
+            -- A window inherits Library.Mascot as a METHOD through __index.
+            -- Using `if not Window.Mascot` tests that inherited function, not
+            -- whether a mascot object actually exists, and breaks Init later
+            -- when it calls `MascotObject:GetState()` on that function.
+            if type(rawget(Window, "Mascot")) ~= "table" and Library.DefaultMascotEnabled ~= false then
                 Window:Mascot(Library.DefaultMascotOptions)
             end
 
@@ -11233,9 +11240,9 @@ end
                 RefreshDefaultLabel()
             end
 
-            local MascotObject = Window.Mascot
+            local MascotObject = rawget(Window, "Mascot")
 
-            if MascotObject then -- Mascot
+            if type(MascotObject) == "table" then -- Mascot
                 local MascotSection = SettingsPage:Section({Name = "Mascot", Icon = "smile", Side = 2})
 
                 -- true while the controls are being built / synced, so their callbacks don't fight the mascot
