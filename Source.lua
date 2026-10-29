@@ -1,4 +1,4 @@
--- mimisense v29: v27 soft glow retained, strength only, full theme notifications, no Tabbox.
+-- mimisense v30: synchronized overlay animations, vertical notifications, hotkeys title.
 -- mimisense v22: no keybind conflict dialog, accented overlay glow, themed opaque notifications, stable options popup placement
 -- mimisense UI library: search, tooltips, DependsOn, range slider, context menu, section reset, animated themes,
 -- export/import strings, menu settings, new colorpicker, watermark fields, keybind list modes, notification side
@@ -40,7 +40,7 @@ local GuiInset = GuiService:GetGuiInset().Y
 local Mouse = cloneref(LocalPlayer:GetMouse())
 
 local Library = {
-    BuildVersion = "2026.10.29-v29-mimisense-horizontalnotify-keybindrmb",
+    BuildVersion = "2026.10.29-v30-mimisense-soft-overlays-hotkeys",
     Flags = { },
 
     MenuKeybind = tostring(Enum.KeyCode.X),
@@ -788,60 +788,70 @@ local Library = {
         return NewTween
     end
 
-    -- Stable widget visibility animation. Unlike FadeDescendants, this does not restore
-    -- stale transparency values from an older hide tween after a newer show tween.
+    -- v30: text-safe overlay transitions.  Do NOT tween UIScale for overlays:
+    -- fractional text raster scaling caused the visible font jitter on every toggle.
+    -- Cancelling in-flight tweens makes rapid on/off clicks reversible.
     Library.AnimatedVisibility = function(Self, Root, Visible, State, ScaleObject)
         State = State or {}
         State.Token = (State.Token or 0) + 1
         local Token = State.Token
-        State.Visible = Visible and true or false
-        State.Baseline = State.Baseline or {}
+        State.Visible = Visible == true
+        State.Baseline = State.Baseline or setmetatable({}, {__mode = 'k'})
+        State.Tweens = State.Tweens or {}
 
         local RootObject = Root.Instance or Root
-        if not RootObject then return State end
+        if not RootObject or not RootObject.Parent then return State end
+        for _, Tween in ipairs(State.Tweens) do
+            pcall(function() Tween:Cancel() end)
+        end
+        table.clear(State.Tweens)
 
-        local Targets = RootObject:GetDescendants()
-        table.insert(Targets, RootObject)
-
-        if Visible then
-            RootObject.Visible = true
+        -- Stop scaling for text-bearing overlays; no font re-rasterizing.
+        if ScaleObject then
+            local Scale = ScaleObject.Instance or ScaleObject
+            if Scale and Scale.Parent then Scale.Scale = 1 end
         end
 
-        for _, Object in Targets do
-            local Property = Library:GetTweenProperty(Object)
-            if type(Property) == "table" then
-                for _, Name in Property do
-                    if State.Baseline[Object] == nil then State.Baseline[Object] = {} end
-                    if State.Baseline[Object][Name] == nil then
-                        local Ok, Value = pcall(function() return Object[Name] end)
-                        if Ok then State.Baseline[Object][Name] = Value end
+        if Visible then RootObject.Visible = true end
+        local Duration = 0.25
+        local Info = TweenInfo.new(Duration, Enum.EasingStyle.Quart,
+            Visible and Enum.EasingDirection.Out or Enum.EasingDirection.In)
+        local Targets = RootObject:GetDescendants()
+        table.insert(Targets, RootObject)
+        for _, Object in ipairs(Targets) do
+            local Properties = Library:GetTweenProperty(Object)
+            if type(Properties) == 'table' and #Properties > 0 then
+                local Stored = State.Baseline[Object]
+                if not Stored then Stored = {}; State.Baseline[Object] = Stored end
+                local Goals = {}
+                for _, Name in ipairs(Properties) do
+                    local Ok, Current = pcall(function() return Object[Name] end)
+                    if Ok and type(Current) == 'number' then
+                        if Stored[Name] == nil then Stored[Name] = Current end
+                        Goals[Name] = Visible and Stored[Name] or 1
                     end
-                    local Target = Visible and State.Baseline[Object][Name] or 1
-                    if Target ~= nil then Library:Tween({[Name] = Target}, TweenInfo.new(0.25, Enum.EasingStyle.Quart, Visible and Enum.EasingDirection.Out or Enum.EasingDirection.In), Object) end
                 end
-            elseif Property then
-                if State.Baseline[Object] == nil then State.Baseline[Object] = {} end
-                if State.Baseline[Object][Property] == nil then
-                    local Ok, Value = pcall(function() return Object[Property] end)
-                    if Ok then State.Baseline[Object][Property] = Value end
+                if next(Goals) then
+                    local Ok, Tween = pcall(TweenService.Create, TweenService, Object, Info, Goals)
+                    if Ok and Tween then
+                        Tween:Play()
+                        table.insert(State.Tweens, Tween)
+                    end
                 end
-                local Target = Visible and State.Baseline[Object][Property] or 1
-                if Target ~= nil then Library:Tween({[Property] = Target}, TweenInfo.new(0.25, Enum.EasingStyle.Quart, Visible and Enum.EasingDirection.Out or Enum.EasingDirection.In), Object) end
             end
         end
 
-        if ScaleObject then
-            ScaleObject:Tween({Scale = Visible and 1 or 0.85}, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Visible and Enum.EasingDirection.Out or Enum.EasingDirection.In))
+        -- Glow opacity follows exactly the same animation as its overlay.
+        if Library.SetOverlayGlowVisibility then
+            Library:SetOverlayGlowVisibility(RootObject, Visible, Duration)
         end
-
         if not Visible then
-            task.delay(0.27, function()
+            task.delay(Duration + 0.01, function()
                 if State.Token == Token and not State.Visible and RootObject.Parent then
                     RootObject.Visible = false
                 end
             end)
         end
-
         return State
     end
 
@@ -1694,46 +1704,42 @@ local Library = {
         ResetOnSpawn = false
     })
 
-    -- mimisense v29: horizontal notifications; new cards sit beside old cards.
-    -- UIGridLayout wraps the row only when there is no more screen space.
+    -- v30: stacked notifications, top-to-bottom, always one column.
+    -- The cards occupy fixed rows and cannot cover each other.
     Library.NotificationCardWidth = 260
     Library.NotificationCardHeight = 88
     Library.NotificationCardGap = 9
-    Library.NotificationMaxColumns = 4
-    Library.NotificationStack = Library:Create("Frame", {
-        Name = "MimisenseNotificationStack", Parent = Library.NotifHolder.Instance,
+    Library.NotificationMaxColumns = 1
+    Library.NotificationStack = Library:Create('Frame', {
+        Name = 'MimisenseNotificationStack', Parent = Library.NotifHolder.Instance,
         BackgroundTransparency = 1, BorderSizePixel = 0,
         AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 14 + GuiInset),
         Size = UDim2.fromOffset(260, 88), ClipsDescendants = false
     })
-    Library.NotificationGrid = Library:Create("UIGridLayout", {
-        Parent = Library.NotificationStack.Instance, Name = "MimisenseNotificationGrid",
+    Library.NotificationGrid = Library:Create('UIGridLayout', {
+        Parent = Library.NotificationStack.Instance, Name = 'MimisenseNotificationGrid',
         FillDirection = Enum.FillDirection.Horizontal,
         StartCorner = Enum.StartCorner.TopRight,
         SortOrder = Enum.SortOrder.LayoutOrder,
         CellSize = UDim2.fromOffset(260, 88),
-        CellPadding = UDim2.fromOffset(9, 9),
+        CellPadding = UDim2.fromOffset(0, 9),
         FillDirectionMaxCells = 1
     })
     Library.RefreshNotificationLayout = function(Self)
         local Camera = workspace.CurrentCamera
         local ViewWidth = Camera and Camera.ViewportSize.X or 1280
-        local Available = math.max(120, ViewWidth - 28)
-        local Gap = Library.NotificationCardGap
-        local Width = math.min(Library.NotificationCardWidth, Available)
+        local Width = math.min(Library.NotificationCardWidth, math.max(160, ViewWidth - 28))
         local Height = Library.NotificationCardHeight
-        local Columns = math.max(1, math.min(Library.NotificationMaxColumns or 4,
-            math.floor((Available + Gap) / (Width + Gap))))
-        local StackWidth = Columns * Width + (Columns - 1) * Gap
+        local Gap = Library.NotificationCardGap
         Library.NotificationGrid.Instance.CellSize = UDim2.fromOffset(Width, Height)
-        Library.NotificationGrid.Instance.CellPadding = UDim2.fromOffset(Gap, Gap)
-        Library.NotificationGrid.Instance.FillDirectionMaxCells = Columns
-        Library.NotificationStack.Instance.Size = UDim2.fromOffset(StackWidth,
-            math.ceil((Library.NotificationLimit or 6) / Columns) * (Height + Gap))
+        Library.NotificationGrid.Instance.CellPadding = UDim2.fromOffset(0, Gap)
+        Library.NotificationGrid.Instance.FillDirectionMaxCells = 1
+        Library.NotificationStack.Instance.Size = UDim2.fromOffset(Width,
+            (Library.NotificationLimit or 6) * (Height + Gap))
     end
     Library:RefreshNotificationLayout()
     if workspace.CurrentCamera then
-        Library:Connect(workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"), function()
+        Library:Connect(workspace.CurrentCamera:GetPropertyChangedSignal('ViewportSize'), function()
             Library:RefreshNotificationLayout()
         end)
     end
@@ -4110,7 +4116,7 @@ Library.Watermark = function(Self, Params)
             Params = Params or { }
 
             local KeybindList = {
-                Name = Params.Name or Params.name or "Keybind List",
+                Name = 'hotkeys',
                 Icon = Params.Icon or Params.icon or "keyboard",
                 Keys = { },
                 Window = Self,
@@ -4436,9 +4442,10 @@ Library.Watermark = function(Self, Params)
                 Library:AnimatedVisibility(Items["KeybindList"], Bool, KeybindListVisibilityState, KeybindListScale)
             end
 
-            function KeybindList:SetText(Text)
-                KeybindList.Name = tostring(Text)
-                Items["Title"].Instance.Text = KeybindList.Name
+            function KeybindList:SetText(_Text)
+                -- Public API always displays a consistent title.
+                KeybindList.Name = 'hotkeys'
+                Items['Title'].Instance.Text = 'hotkeys'
             end
 
             function KeybindList:Center()
@@ -4962,22 +4969,24 @@ Library.Watermark = function(Self, Params)
             })
 
             local ESPScale = Library:Create("UIScale", {Name = "", Parent = Items["ESPPreview"].Instance, Scale = 1})
+            local ESPTransitionToken = 0
             function ESPPreview:SetVisibility(Bool)
-                Bool = Bool and true or false
+                Bool = Bool == true
+                ESPTransitionToken += 1
+                local Token = ESPTransitionToken
                 ESPVisibilityState.Visible = Bool
-                if Bool then
-                    -- Re-parent the cloned character only while the preview is enabled.
-                    if ViewportModel and ViewportModel.Parent ~= Viewport.Instance then
-                        ViewportModel.Parent = Viewport.Instance
-                    end
-                else
-                    -- ViewportModel is a real Instance; hiding the ViewportFrame alone can
-                    -- leave the clone rendered by the viewport camera. Remove it as well.
-                    if ViewportModel and ViewportModel.Parent == Viewport.Instance then
-                        ViewportModel.Parent = nil
-                    end
+                if Bool and ViewportModel and ViewportModel.Parent ~= Viewport.Instance then
+                    ViewportModel.Parent = Viewport.Instance
                 end
-                Library:AnimatedVisibility(Items["ESPPreview"], Bool, ESPVisibilityState, ESPScale)
+                Library:AnimatedVisibility(Items['ESPPreview'], Bool, ESPVisibilityState, ESPScale)
+                if not Bool then
+                    task.delay(0.26, function()
+                        if ESPTransitionToken == Token and not ESPVisibilityState.Visible
+                            and ViewportModel and ViewportModel.Parent == Viewport.Instance then
+                            ViewportModel.Parent = nil
+                        end
+                    end)
+                end
             end
 
             function ESPPreview:SetText(Text)
@@ -5255,7 +5264,7 @@ Library.Watermark = function(Self, Params)
                 FooterText.BackgroundTransparency = 1
                 FooterText.BorderSizePixel = 0
                 
-                FooterText.Text = tostring(Library.CustomVersionLabel or "mimisense · v29")
+                FooterText.Text = tostring(Library.CustomVersionLabel or "mimisense · v30")
                 
                 FooterText.TextColor3 = Library.Theme["Inactive Text"]
                 FooterText.FontFace = Library.Font
@@ -5321,6 +5330,9 @@ Library.Watermark = function(Self, Params)
                 Debounce = true
 
                 Window.IsOpen = Bool
+                if Library.SetOverlayGlowVisibility then
+                    Library:SetOverlayGlowVisibility(Items['MainFrame'].Instance, Bool, 0.25)
+                end
                 Items["MainFrame"]:FadeDescendants(Bool, function()
                     Debounce = false
                 end)
@@ -5458,8 +5470,8 @@ Library.Watermark = function(Self, Params)
 
                 Items["Scale"] = Library:Create("UIScale", {
                     Name = "\0",
-                    Parent = Items["Image"].Instance,
-                    Scale = 0.85
+                    Parent = Items['Image'].Instance,
+                    Scale = 1
                 })
 
                 Mascot.Items = Items
@@ -5469,31 +5481,35 @@ Library.Watermark = function(Self, Params)
 
             local function Show()
                 Token += 1
-                Items["Image"].Instance.Visible = true
-                Items["Image"].Instance.Active = true
-                Items["Scale"]:Tween({Scale = 1}, ShowInfo)
-                Items["Image"]:Tween({ImageTransparency = 0}, ShowInfo)
+                Items['Image'].Instance.Visible = true
+                Items['Image'].Instance.Active = true
+                Items['Scale'].Instance.Scale = 1
+                Items['Image']:Tween({ImageTransparency = 0}, ShowInfo)
+                if Library.SetOverlayGlowVisibility then
+                    Library:SetOverlayGlowVisibility(Items['Image'].Instance, true, ShowInfo.Time)
+                end
             end
 
             local function Hide()
                 Token += 1
                 local Mine = Token
-                Items["Image"].Instance.Active = false
-                Items["Scale"]:Tween({Scale = 0.85}, HideInfo)
-                Items["Image"]:Tween({ImageTransparency = 1}, HideInfo)
-                task.delay(HideInfo.Time + 0.05, function()
-                    if Library and Token == Mine then
-                        Items["Image"].Instance.Visible = false
+                Items['Image'].Instance.Active = false
+                Items['Scale'].Instance.Scale = 1
+                Items['Image']:Tween({ImageTransparency = 1}, HideInfo)
+                if Library.SetOverlayGlowVisibility then
+                    Library:SetOverlayGlowVisibility(Items['Image'].Instance, false, HideInfo.Time)
+                end
+                task.delay(HideInfo.Time + 0.02, function()
+                    if Library and Token == Mine and Items['Image'].Instance.Parent then
+                        Items['Image'].Instance.Visible = false
                     end
                 end)
             end
 
             function Mascot:SetVisibility(Bool)
-                Bool = Bool and true or false
+                Bool = Bool == true
                 Mascot.Visible = Bool
-                if not Mascot.Loaded and Items["Image"].Instance.Image == "" then
-                    return
-                end
+                if not Mascot.Loaded and Items['Image'].Instance.Image == '' then return end
                 if Bool then Show() else Hide() end
             end
 
@@ -10775,9 +10791,11 @@ end
                 Stack.AnchorPoint = Vector2.new(1, 0)
                 Stack.Position = UDim2.new(1, -14, 0, GuiInset + 8)
             end
-            local Layout = Stack:FindFirstChildOfClass("UIGridLayout")
+            local Layout = Stack:FindFirstChildOfClass('UIGridLayout')
             if Layout then
-                Layout.StartCorner = Side == "Left" and Enum.StartCorner.TopLeft or Enum.StartCorner.TopRight
+                Layout.StartCorner = Side == 'Left' and Enum.StartCorner.TopLeft or Enum.StartCorner.TopRight
+                Layout.FillDirection = Enum.FillDirection.Horizontal
+                Layout.FillDirectionMaxCells = 1
             end
             if Library.RefreshNotificationLayout then Library:RefreshNotificationLayout() end
         end
@@ -11036,10 +11054,54 @@ end
             Add(type(KeybindList)=='table' and KeybindList.Items and KeybindList.Items.KeybindList)
             local ESPPreview = rawget(Window, 'ESPPreview')
             Add(type(ESPPreview)=='table' and ESPPreview.Items and ESPPreview.Items.ESPPreview)
+            local Mascot = rawget(Window, 'Mascot')
+            Add(type(Mascot)=='table' and Mascot.Items and Mascot.Items.Image)
             return Targets
         end
+
+        -- Animate glow with the associated overlay. No UIScale or text changes.
+        Library.OverlayVisibilityStates = setmetatable({}, {__mode='k'})
+        Library.SetOverlayGlowVisibility = function(Self, Root, Visible, Duration)
+            Library.OverlayVisibilityStates[Root] = Visible == true
+            local Entry = Library.OuterGlowMap and Library.OuterGlowMap[Root]
+            if not Entry or not Entry.Image or not Entry.Image.Parent then return end
+            local Image = Entry.Image
+            Entry.AnimationToken = (Entry.AnimationToken or 0) + 1
+            local Token = Entry.AnimationToken
+            if Entry.FadeTween then
+                pcall(function() Entry.FadeTween:Cancel() end)
+                Entry.FadeTween = nil
+            end
+            local Want = Visible == true and Library.MenuGlowEnabled == true
+            Entry.Desired = Want
+            Entry.IsAnimating = true
+            if Want then Image.Visible = true end
+            local TargetTransparency = Want and (1 - Library.MenuGlowStrength / 100) or 1
+            local Time = tonumber(Duration) or 0.25
+            if Time > 0 and Image.Parent and Image.Visible then
+                local Tween = TweenService:Create(Image,
+                    TweenInfo.new(Time, Enum.EasingStyle.Quart,
+                        Want and Enum.EasingDirection.Out or Enum.EasingDirection.In),
+                    {ImageTransparency = TargetTransparency})
+                Entry.FadeTween = Tween
+                Tween:Play()
+                Tween.Completed:Connect(function()
+                    if Entry.AnimationToken ~= Token then return end
+                    Entry.IsAnimating = false
+                    Entry.FadeTween = nil
+                    if not Want and Image.Parent then Image.Visible = false end
+                end)
+            else
+                Image.ImageTransparency = TargetTransparency
+                Entry.IsAnimating = false
+                if not Want then Image.Visible = false end
+            end
+        end
+
         Library.SetMenuGlow = function(Self, _Ignored, Enabled)
+            local WasEnabled = Library.MenuGlowEnabled == true
             Library.MenuGlowEnabled = Enabled ~= false
+            local WasToggled = WasEnabled ~= Library.MenuGlowEnabled
             local Window = Library.ActiveWindow
             if not Window or not Window.Items or not Library.Holder then return end
             for _, Root in ipairs(GlowTargets(Window)) do
@@ -11076,9 +11138,12 @@ end
                             (2*Anchor.X-1)*Pad, (2*Anchor.Y-1)*Pad)
                         local S = Root.AbsoluteSize
                         Image.Size = UDim2.fromOffset(math.max(1,S.X+2*Pad), math.max(1,S.Y+2*Pad))
-                        Image.Visible = Library.MenuGlowEnabled and Root.Visible
+                        -- Visibility and opacity are owned by the fade controller.
+                        -- Only force hidden after the overlay is really invisible.
+                        if not Root.Visible then Image.Visible = false end
                     end
                     Entry.Sync = Sync
+                    Entry.JustCreated = true
                     Library:Connect(Root:GetPropertyChangedSignal('Position'), Sync)
                     Library:Connect(Root:GetPropertyChangedSignal('AnchorPoint'), Sync)
                     Library:Connect(Root:GetPropertyChangedSignal('AbsoluteSize'), Sync)
@@ -11093,8 +11158,23 @@ end
                 end
                 local Image = Entry.Image
                 Image.ImageColor3 = Library.Theme['Accent']
-                Image.ImageTransparency = 1 - Library.MenuGlowStrength/100
                 Entry.Sync()
+                if Entry.JustCreated then
+                    Entry.JustCreated = nil
+                    local Desired = Library.MenuGlowEnabled and Root.Visible
+                        and Library.OverlayVisibilityStates[Root] ~= false
+                    Entry.Desired = Desired
+                    Image.Visible = Desired
+                    Image.ImageTransparency = Desired and (1 - Library.MenuGlowStrength / 100) or 1
+                elseif WasToggled then
+                    Library:SetOverlayGlowVisibility(Root,
+                        Root.Visible and Library.OverlayVisibilityStates[Root] ~= false, 0.26)
+                elseif not Entry.IsAnimating then
+                    local Desired = Library.MenuGlowEnabled and Root.Visible
+                        and Library.OverlayVisibilityStates[Root] ~= false
+                    Image.Visible = Desired
+                    Image.ImageTransparency = Desired and (1 - Library.MenuGlowStrength / 100) or 1
+                end
             end
         end
 
@@ -11821,9 +11901,9 @@ end
                 end
 
                 local KeybindList = rawget(Window, "KeybindList")
-                local KeybindRow = Visibility("Keybind List", KeybindList, "UI/Menu/KeybindList")
+                local KeybindRow = Visibility('Hotkeys', KeybindList, 'UI/Menu/KeybindList')
                 if KeybindRow and type(KeybindList.SetFilter) == "function" then
-                    Panel(KeybindRow, "Keybind List Options"):Dropdown({
+                    Panel(KeybindRow, 'Hotkeys Options'):Dropdown({
                         Name = "Display Mode", Flag = "UI/KeybindListMode",
                         Items = {"Only assigned", "Only active", "Show all"},
                         Default = State.KeybindListMode or "Only assigned",
