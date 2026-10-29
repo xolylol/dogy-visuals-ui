@@ -38,7 +38,7 @@ local GuiInset = GuiService:GetGuiInset().Y
 local Mouse = cloneref(LocalPlayer:GetMouse())
 
 local Library = {
-    BuildVersion = "2026.10.29-v12-showcase",
+    BuildVersion = "2026.10.29-v13-single-menu",
     Flags = { },
 
     MenuKeybind = tostring(Enum.KeyCode.X),
@@ -64,7 +64,7 @@ local Library = {
     ZIndexOrder = {
         ["OptionHolder"] = 5,
         ["KeybindWindow"] = 5,
-        ["ColorpickerWindow"] = 6
+        ["ColorpickerWindow"] = 20
     },
 
     -- Ignore below
@@ -348,28 +348,53 @@ local Library = {
     Library.Theme = table.clone(Themes["Preset"])
 
     -- applies a { [ThemeKey] = Color3 } table: recolors the UI and syncs the Theming colorpickers
+    -- Apply a complete theme in a single pass, avoiding multiple full-UI walks.
     Library.ApplyThemeData = function(Self, ThemeData)
-        -- while this table exists ChangeTheme fades colors instead of snapping them
-        Library.ThemeTransition = Library.ThemeAnimation and { } or nil
-
-        for Index, Color in ThemeData do
-            Library:ChangeTheme(Index, Color)
-
-            local SetFunction = SetFlags[Index .. "Theming"]
-            if SetFunction then
-                SetFunction(Color, 0)
+        if type(ThemeData) ~= "table" then return false end
+        local NewColors = {}
+        for Key, Color in ThemeData do
+            if Library.Theme[Key] ~= nil and typeof(Color) == "Color3" then
+                NewColors[Key] = Color
             end
         end
+        if not next(NewColors) then return false end
 
-        Library.ThemeTransition = nil
+        Library.ThemeBulkUpdating = true
+        for Key, Color in NewColors do
+            Library.Theme[Key] = Color
+            local Setter = Library.SetFlags[Key .. "Theming"]
+            if Setter then pcall(Setter, Color, 0) end
+        end
+        Library.ThemeBulkUpdating = false
 
-        local ActiveWindow = Library.ActiveWindow
-        local Main = ActiveWindow and ActiveWindow.Items and ActiveWindow.Items.MainFrame and ActiveWindow.Items.MainFrame.Instance
-        if Main then
-            for _, GlowName in { "DogyAccentGlow", "DogyAccentGlowSoft", "DogyAccentGlowWide" } do
-                local Glow = Main:FindFirstChild(GlowName)
-                if Glow then Glow.Color = Library.Theme["Accent"] end
+        local UseAnimation = Library.ThemeAnimation ~= false
+        local Info = TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+        for _, Item in Library.ThemingStuff do
+            local Object = Item.Item
+            if Object and Object.Parent then
+                local Targets = {}
+                for Property, ThemeKey in Item.Properties do
+                    if type(ThemeKey) == "string" then
+                        if NewColors[ThemeKey] then Targets[Property] = Library.Theme[ThemeKey] end
+                    elseif type(ThemeKey) == "function" then
+                        local Ok, Value = pcall(ThemeKey)
+                        if Ok and typeof(Value) == "Color3" then Targets[Property] = Value end
+                    end
+                end
+                if next(Targets) then
+                    if UseAnimation then
+                        local Ok, Tween = pcall(TweenService.Create, TweenService, Object, Info, Targets)
+                        if Ok then Tween:Play() else
+                            for K, V in Targets do pcall(function() Object[K] = V end) end
+                        end
+                    else
+                        for K, V in Targets do pcall(function() Object[K] = V end) end
+                    end
+                end
             end
+        end
+        if Library.SetMenuGlow then
+            Library:SetMenuGlow(Library.MenuGlowStrength or 35, Library.MenuGlowEnabled ~= false)
         end
         return true
     end
@@ -594,7 +619,7 @@ local Library = {
             end
         end
 
-        for _, Name in {"UIClickSound", "MascotClickSound"} do
+        for _, Name in {"UIClickSound", "MascotClickSound", "NotificationSound"} do
             if Self[Name] then
                 pcall(function() Self[Name]:Destroy() end)
             end
@@ -1229,6 +1254,10 @@ local Library = {
     end
 
     Library.ChangeTheme = function(Self, Theme, Color)
+        if Library.ThemeBulkUpdating then
+            Library.Theme[Theme] = Color
+            return
+        end
         local Transition = Library.ThemeTransition
 
         -- the same color arrives again through the theming colorpickers: already handled
@@ -1954,11 +1983,28 @@ local Library = {
                 end)
             end
 
-                        function Colorpicker:SetOpen(Bool)
-                if Debounce then
-                    return
+            function Colorpicker:SetOpen(Bool)
+                Bool = Bool and true or false
+                if Bool and Library.ActiveColorpicker and Library.ActiveColorpicker ~= Colorpicker then
+                    local Previous = Library.ActiveColorpicker
+                    Library.ActiveColorpicker = nil
+                    -- Close old picker before the next one becomes visible.
+                    Previous:SetOpen(false)
+                    Previous.IsOpen = false
+                    Library:UnregisterOpenFrame(Previous)
+                    Library:CloseOpenFrameChildren(Previous)
+                    if Previous.Items and Previous.Items.ColorpickerWindow then
+                        local OldWindow = Previous.Items.ColorpickerWindow.Instance
+                        if OldWindow then
+                            OldWindow.Visible = false
+                            OldWindow.Parent = Library.UnusedHolder.Instance
+                        end
+                    end
                 end
-
+                if Debounce and Bool then return end
+                if Colorpicker.IsOpen == Bool then return end
+                if Bool then Library.ActiveColorpicker = Colorpicker
+                elseif Library.ActiveColorpicker == Colorpicker then Library.ActiveColorpicker = nil end
                 Colorpicker.IsOpen = Bool
 
                 Debounce = true
@@ -3412,6 +3458,32 @@ end
             return Keybind, Items
         end
 
+-- Notification audio uses one reusable Sound instance, never one per message.
+Library.NotificationSoundMode = "None"
+Library.NotificationVolume = 0.55
+Library.NotificationCustomSoundId = ""
+Library.PlayNotificationSound = function(Self)
+    if Library.NotificationSoundMode == "None" then return end
+    local Id
+    if Library.NotificationSoundMode == "Custom" then
+        Id = Library:NormalizeSoundId(Library.NotificationCustomSoundId)
+    else
+        Id = Library:NormalizeSoundId(Library.UIClickSoundId)
+    end
+    if not Id then return end
+    local Sound = Library.NotificationSound
+    if not Sound or not Sound.Parent then
+        Sound = Instance.new("Sound")
+        Sound.Name = "DogyNotificationSound"
+        Sound.Parent = SoundService
+        Library.NotificationSound = Sound
+    end
+    Sound.SoundId = Id
+    Sound.Volume = math.clamp(Library.NotificationVolume or 0.55, 0, 1)
+    Sound.TimePosition = 0
+    pcall(function() SoundService:PlayLocalSound(Sound) end)
+end
+
 Library.SetUIClickVolume = function(Self, Volume)
     Volume = tonumber(Volume)
     if not Volume then return end
@@ -3506,8 +3578,6 @@ Library.Watermark = function(Self, Params)
                     BorderSizePixel = 0,
                     AutomaticSize = Enum.AutomaticSize.XY
                 }):AddToTheme({TextColor3 = 'Text'})
-
-                Items["MainFrame"]:MakeDraggable(Items["Top"])
 
                 Items["Logo"] = Library:Create("ImageLabel", {
                     Name = "\0",
@@ -4179,6 +4249,7 @@ Library.Watermark = function(Self, Params)
         Library.Notification = function(Self, Params)
             Params = Params or { }
 
+            if Library.PlayNotificationSound then Library:PlayNotificationSound() end
             local Name = tostring(Params.Name or Params.name or Params.Title or Params.title or "Notification")
             local Description = tostring(Params.Description or Params.description or "")
             local Duration = math.max(tonumber(Params.Duration or Params.duration) or 4, 0.5)
@@ -4294,7 +4365,7 @@ Library.Watermark = function(Self, Params)
                 Size = UDim2.new(1, 0, 0, 0),
                 AutomaticSize = Enum.AutomaticSize.Y,
                 LayoutOrder = 1
-            })
+            }):AddToTheme({TextColor3 = "Text"})
 
             Items["Description"] = Library:Create("TextLabel", {
                 Name = "\0",
@@ -4312,7 +4383,7 @@ Library.Watermark = function(Self, Params)
                 Size = UDim2.new(1, 0, 0, 0),
                 AutomaticSize = Enum.AutomaticSize.Y,
                 LayoutOrder = 2
-            })
+            }):AddToTheme({TextColor3 = "Inactive Text"})
 
             Items["Progress"] = Library:Create("Frame", {
                 Name = "\0",
@@ -4324,7 +4395,7 @@ Library.Watermark = function(Self, Params)
                 BackgroundTransparency = 1,
                 BackgroundColor3 = Color,
                 ZIndex = 3
-            })
+            }):AddToTheme({BackgroundColor3 = "Accent"})
 
             Items["Hit"] = Library:Create("TextButton", {
                 Name = "\0",
@@ -4912,6 +4983,9 @@ Library.Watermark = function(Self, Params)
                     BackgroundColor3 = Library.Theme["Text"]
                 }):AddToTheme({TextColor3 = 'Inactive Text'})
 
+                -- Move the main window ONLY by dragging its top bar.
+                Items["MainFrame"]:MakeDraggable(Items["Top"])
+
                 Items["Pages"] = Library:Create("Frame", {
                     Name = "\0",
                     Parent = Items["Top"].Instance,
@@ -4944,7 +5018,7 @@ Library.Watermark = function(Self, Params)
                     Parent = Items["MainFrame"].Instance,
                     BackgroundTransparency = 1,
                     Position = UDim2.new(0, 0, 0, 56),
-                    Size = UDim2.new(1, 0, 1, -56),
+                    Size = UDim2.new(1, 0, 1, -77),
                     BorderSizePixel = 0,
                     BackgroundColor3 = Library.Theme["Text"]
                 }):AddToTheme({BackgroundColor3 = 'Text'})
@@ -4955,12 +5029,14 @@ Library.Watermark = function(Self, Params)
                 local Footer = Instance.new("Frame")
                 Footer.Name = "DogyFooter"
                 Footer.AnchorPoint = Vector2.new(0, 1)
-                Footer.Position = UDim2.new(0, 8, 1, -4)
-                Footer.Size = UDim2.new(1, -16, 0, 18)
-                Footer.BackgroundTransparency = 1
+                Footer.Position = UDim2.new(0, 0, 1, 0)
+                Footer.Size = UDim2.new(1, 0, 0, 22)
+                Footer.BackgroundTransparency = 0
+                Footer.BackgroundColor3 = Library.Theme["Background"]
                 Footer.BorderSizePixel = 0
-                Footer.ZIndex = 30
+                Footer.ZIndex = 2
                 Footer.Parent = Items["MainFrame"].Instance
+                Library.AddToTheme({Instance = Footer}, {BackgroundColor3 = "Background"})
 
                 local FooterText = Instance.new("TextLabel")
                 FooterText.Name = "VersionText"
@@ -4975,7 +5051,7 @@ Library.Watermark = function(Self, Params)
                 FooterText.TextXAlignment = Enum.TextXAlignment.Center
                 FooterText.Size = UDim2.new(1, -22, 1, 0)
                 FooterText.Position = UDim2.new(0, 0, 0, 0)
-                FooterText.ZIndex = 31
+                FooterText.ZIndex = 3
                 FooterText.Parent = Footer
                 local ResizeGrip = Instance.new("TextButton")
                 ResizeGrip.Name = "ResizeGrip"
@@ -4989,7 +5065,7 @@ Library.Watermark = function(Self, Params)
                 ResizeGrip.TextColor3 = Library.Theme["Inactive Text"]
                 ResizeGrip.FontFace = Library.Font
                 ResizeGrip.TextSize = Library.FontSize + 2
-                ResizeGrip.ZIndex = 32
+                ResizeGrip.ZIndex = 4
                 ResizeGrip.Parent = Footer
                 ResizeGrip.MouseEnter:Connect(function()
                     ResizeGrip.TextColor3 = Library.Theme["Accent"]
@@ -5148,7 +5224,7 @@ Library.Watermark = function(Self, Params)
                     Name = "\0",
                     Parent = Self.Items["MainFrame"].Instance,
                     AnchorPoint = Vector2.new(0.5, 0.5),
-                    Position = UDim2.new(0, 280 + Mascot.Offset.X, 0, 280 + Mascot.Offset.Y),
+                    Position = UDim2.new(0.5, Mascot.Offset.X, 0.5, Mascot.Offset.Y),
                     Size = BaseSize,
                     Rotation = Mascot.Rotation,
                     BackgroundTransparency = 1,
@@ -5337,7 +5413,7 @@ Library.Watermark = function(Self, Params)
                 Y = tonumber(Y) or 0
 
                 Mascot.Offset = Vector2.new(X, Y)
-                Items["Image"].Instance.Position = UDim2.new(0, 280 + X, 0, 280 + Y)
+                Items["Image"].Instance.Position = UDim2.new(0.5, X, 0.5, Y)
                 Items["Image"].Instance.ZIndex = Mascot.ZIndex
             end
 
@@ -5359,7 +5435,7 @@ Library.Watermark = function(Self, Params)
                 -- Mascot coordinates are relative to the center of the GUI:
                 -- 0,0 = center, negative X = left, positive X = right,
                 -- negative Y = up, positive Y = down.
-                Items["Image"].Instance.Position = UDim2.new(0, 280 + Mascot.Offset.X, 0, 280 + Mascot.Offset.Y)
+                Items["Image"].Instance.Position = UDim2.new(0.5, Mascot.Offset.X, 0.5, Mascot.Offset.Y)
                 Items["Image"].Instance.ZIndex = Mascot.ZIndex
 
                 if Mascot.Visible and Mascot.Loaded then
@@ -6133,7 +6209,7 @@ end
                 Items = { }
             }
 
-            local WindowZIndex = 3
+            local WindowZIndex = 8
             local SlideOffset = 10
             local Items = { }
             local ColorProperty = "ImageColor3"
@@ -10546,9 +10622,9 @@ end
             if not Frame then return end
             local Accent = Library.Theme["Accent"] or Color3.fromRGB(180, 110, 255)
             local GlowSpecs = {
-                { Name = "DogyAccentGlowWide", Thickness = 10 + Strength / 5, Transparency = 0.97 - Strength / 500 },
-                { Name = "DogyAccentGlowSoft", Thickness = 5 + Strength / 8, Transparency = 0.91 - Strength / 400 },
-                { Name = "DogyAccentGlow", Thickness = 1 + Strength / 25, Transparency = 0.84 - Strength / 180 },
+                { Name = "DogyAccentGlowWide", Thickness = 5 + Strength * 0.16, Transparency = 0.995 - Strength * 0.0010 },
+                { Name = "DogyAccentGlowSoft", Thickness = 3 + Strength * 0.075, Transparency = 0.98 - Strength * 0.0015 },
+                { Name = "DogyAccentGlow", Thickness = 1 + Strength * 0.015, Transparency = 0.96 - Strength * 0.0020 },
             }
             for _, Spec in GlowSpecs do
                 local Glow = Frame:FindFirstChild(Spec.Name)
@@ -10809,6 +10885,10 @@ end
             -- when it calls `MascotObject:GetState()` on that function.
             if type(rawget(Window, "Mascot")) ~= "table" and Library.DefaultMascotEnabled ~= false then
                 Window:Mascot(Library.DefaultMascotOptions)
+            end
+
+            if type(rawget(Window, "Watermark")) ~= "table" then
+                Window:Watermark({Name = Window.Name, Logo = Window.Logo})
             end
 
             local SettingsPage = Window:Page({Name = "UI Settings", Icon = "settings"})
@@ -11240,377 +11320,187 @@ end
                 RefreshDefaultLabel()
             end
 
-            local MascotObject = rawget(Window, "Mascot")
-
-            if type(MascotObject) == "table" then -- Mascot
-                local MascotSection = SettingsPage:Section({Name = "Mascot", Icon = "smile", Side = 2})
-
-                -- true while the controls are being built / synced, so their callbacks don't fight the mascot
-                local Syncing = true
-
-                local State = MascotObject:GetState()
-                local Names = MascotObject:GetNames()
-
-                if #Names == 0 then
-                    Names = { "None" }
+            -- UI Settings: a single Menu section; options open from small gear icons.
+            do
+                local State = Library:LoadUIState()
+                local Menu = SettingsPage:Section({Name = "Menu", Icon = "settings", Side = 2, ResetButton = false})
+                local function Save(Field, Value)
+                    State[Field] = Value
+                    Library:QueueSaveUIState()
+                end
+                local function Panel(Row, Name)
+                    return Row:Options({Name = Name, Width = 265, Icon = "settings"})
+                end
+                local function Visibility(Name, Object, Flag)
+                    if type(Object) ~= "table" or not Object.SetVisibility then return nil end
+                    return Menu:Toggle({Name = Name, Flag = Flag, Default = true,
+                        Callback = function(Value) Object:SetVisibility(Value) end})
                 end
 
-                local SoundId = function()
-                    local Data = MascotObject.Mascots and MascotObject.Mascots[MascotObject.CurrentMascot]
-                    return (type(Data) == "table" and Data.ClickSound) or "102774986031312"
+                Menu:Label({Name = "Menu Keybind"}):Keybind({
+                    Name = "Menu Keybind", Flag = "MenuKeybind", Default = Enum.KeyCode.X,
+                    Mode = "Toggle", Callback = function()
+                        local Bind = Library.Flags["MenuKeybind"]
+                        if type(Bind) == "table" and Bind.Key and Bind.Key ~= "None" then
+                            Library.MenuKeybind = tostring(Bind.Key):match("^Enum%.") and tostring(Bind.Key) or "Enum.KeyCode." .. tostring(Bind.Key)
+                        end
+                    end
+                })
+
+                local Watermark = rawget(Window, "Watermark")
+                local WatermarkRow = Visibility("Watermark", Watermark, "UI/Menu/Watermark")
+                if WatermarkRow and type(Watermark.SetFields) == "function" then
+                    local Options = Panel(WatermarkRow, "Watermark Options")
+                    Options:Dropdown({Name = "Modules", Flag = "UI/WatermarkFields", Multi = true,
+                        Items = Library.WatermarkFieldOrder or {"FPS", "Ping", "Place", "Session", "Time", "Date", "Player", "Players", "Memory"},
+                        Default = State.WatermarkFields or {"FPS", "Ping"},
+                        Callback = function(Value)
+                            if type(Value) == "table" then Watermark:SetFields(Value) Save("WatermarkFields", Value) end
+                        end})
                 end
 
-                -- the user's sound choice survives a mascot switch (SetMascot loads the preset's sound)
-                local ApplyAudio = function()
-                    MascotObject:SetClickSound(Library.Flags["Mascot/ClickSound"] ~= "None" and SoundId() or nil)
+                local KeybindList = rawget(Window, "KeybindList")
+                local KeybindRow = Visibility("Keybind List", KeybindList, "UI/Menu/KeybindList")
+                if KeybindRow and type(KeybindList.SetFilter) == "function" then
+                    Panel(KeybindRow, "Keybind List Options"):Dropdown({
+                        Name = "Display Mode", Flag = "UI/KeybindListMode",
+                        Items = {"Only assigned", "Only active", "Show all"},
+                        Default = State.KeybindListMode or "Only assigned",
+                        Callback = function(Value) KeybindList:SetFilter(Value) Save("KeybindListMode", Value) end})
+                end
+                Visibility("ESP Preview", rawget(Window, "ESPPreview"), "UI/Menu/ESPPreview")
 
-                    local Volume = Library.Flags["Mascot/ClickVolume"]
-                    if type(Volume) == "number" then
-                        MascotObject:SetClickSoundVolume(Volume / 100)
+                local Mascot = rawget(Window, "Mascot")
+                local MascotRow = Visibility("Mascot", Mascot, "UI/Menu/Mascot")
+                if MascotRow and Mascot.GetState then
+                    local Options = Panel(MascotRow, "Mascot Options")
+                    local Original = Mascot:GetState()
+                    local Syncing = false
+                    local function SyncCoords()
+                        Syncing = true
+                        local Current = Mascot:GetState()
+                        for Key, Value in { ["Mascot/X"] = Current.X, ["Mascot/Y"] = Current.Y,
+                            ["Mascot/Rotation"] = Current.Rotation, ["Mascot/Size"] = Current.Size } do
+                            local Set = Library.SetFlags[Key]
+                            if Set then Set(Value) end
+                        end
+                        Syncing = false
+                    end
+                    local function ApplyMascotSound()
+                        local Data = Mascot.Mascots and Mascot.Mascots[Mascot.CurrentMascot]
+                        local SoundId = (type(Data) == "table" and Data.ClickSound) or "102774986031312"
+                        Mascot:SetClickSound(Library.Flags["Mascot/ClickSound"] ~= "None" and SoundId or nil)
+                        local Volume = tonumber(Library.Flags["Mascot/ClickVolume"]) or 80
+                        Mascot:SetClickSoundVolume(Volume / 100)
                         Library:SetMascotClickVolume(Volume / 100)
                     end
+                    local Names = Mascot:GetNames()
+                    if #Names == 0 then Names = {"None"} end
+                    Options:Dropdown({Name = "Mascot", Flag = "Mascot/Selected", Items = Names,
+                        Default = Original.Name or Names[1], Callback = function(Value)
+                            if Value == Mascot.CurrentMascot then return end
+                            Mascot:SetMascot(Value)
+                            SyncCoords()
+                            ApplyMascotSound()
+                        end})
+                    Options:Slider({Name = "Position X", Flag = "Mascot/X", Min = -600, Max = 600,
+                        Default = Original.X, Callback = function(Value)
+                            if Syncing then return end
+                            local _, Y = Mascot:GetCenteredPosition()
+                            Mascot:SetCenteredPosition(Value, Y)
+                        end})
+                    Options:Slider({Name = "Position Y", Flag = "Mascot/Y", Min = -600, Max = 600,
+                        Default = Original.Y, Callback = function(Value)
+                            if Syncing then return end
+                            local X = Mascot:GetCenteredPosition()
+                            Mascot:SetCenteredPosition(X, Value)
+                        end})
+                    Options:Slider({Name = "Rotation", Flag = "Mascot/Rotation", Min = -180, Max = 180,
+                        Default = Original.Rotation, Suffix = "°", Callback = function(Value)
+                            if not Syncing then Mascot:SetRotation(Value) end
+                        end})
+                    Options:Slider({Name = "Size", Flag = "Mascot/Size", Min = 20, Max = 400,
+                        Default = Original.Size, Callback = function(Value)
+                            if not Syncing then Mascot:SetSize(Value) end
+                        end})
+                    Options:Dropdown({Name = "Click Sound", Flag = "Mascot/ClickSound",
+                        Items = {"Default", "None"}, Default = "Default", Callback = ApplyMascotSound})
+                    Options:Slider({Name = "Click Volume", Flag = "Mascot/ClickVolume", Min = 0, Max = 100,
+                        Default = math.floor((Original.ClickSoundVolume or 0.8) * 100 + 0.5), Suffix = "%",
+                        Callback = ApplyMascotSound})
+                    Options:Button({Name = "Reset Mascot", Callback = function()
+                        Mascot:ResetToDefault()
+                        SyncCoords()
+                        ApplyMascotSound()
+                    end})
                 end
 
-                local Sync = function()
-                    local Was = Syncing
-                    Syncing = true
-
-                    local Now = MascotObject:GetState()
-                    SetFlag("Mascot/X", Now.X)
-                    SetFlag("Mascot/Y", Now.Y)
-                    SetFlag("Mascot/Rotation", Now.Rotation)
-                    SetFlag("Mascot/Size", Now.Size)
-
-                    Syncing = Was
-                end
-
-                MascotSection:Dropdown({
-                    Name = "Mascot",
-                    Flag = "Mascot/Selected",
-                    Items = Names,
-                    Default = State.Name or Names[1],
-                    Callback = function(Value)
-                        if Syncing or Value == MascotObject.CurrentMascot then return end
-
-                        MascotObject:SetMascot(Value)
-                        Sync()
-                        ApplyAudio()
-                    end
-                })
-
-                MascotSection:Slider({
-                    Name = "Position X", Flag = "Mascot/X", Min = -600, Max = 600,
-                    Default = State.X, Decimals = 0,
-                    Callback = function(Value)
-                        if Syncing then return end
-                        local _, Y = MascotObject:GetCenteredPosition()
-                        MascotObject:SetCenteredPosition(Value, Y)
-                    end
-                })
-
-                MascotSection:Slider({
-                    Name = "Position Y", Flag = "Mascot/Y", Min = -600, Max = 600,
-                    Default = State.Y, Decimals = 0,
-                    Callback = function(Value)
-                        if Syncing then return end
-                        local X = MascotObject:GetCenteredPosition()
-                        MascotObject:SetCenteredPosition(X, Value)
-                    end
-                })
-
-                MascotSection:Slider({
-                    Name = "Rotation", Flag = "Mascot/Rotation", Min = -180, Max = 180,
-                    Default = State.Rotation, Decimals = 0, Suffix = "°",
-                    Callback = function(Value)
-                        if Syncing then return end
-                        MascotObject:SetRotation(Value)
-                    end
-                })
-
-                MascotSection:Slider({
-                    Name = "Size", Flag = "Mascot/Size", Min = 20, Max = 400,
-                    Default = State.Size, Decimals = 0,
-                    Callback = function(Value)
-                        if Syncing then return end
-                        MascotObject:SetSize(Value)
-                    end
-                })
-
-                MascotSection:Dropdown({
-                    Name = "Click Sound", Flag = "Mascot/ClickSound",
-                    Items = { "Default", "None" }, Default = "Default",
-                    Callback = function()
-                        if Syncing then return end
-                        ApplyAudio()
-                    end
-                })
-
-                MascotSection:Slider({
-                    Name = "Click Volume", Flag = "Mascot/ClickVolume", Min = 0, Max = 100,
-                    Default = math.floor(State.ClickSoundVolume * 100 + 0.5), Decimals = 0, Suffix = "%",
-                    Callback = function()
-                        if Syncing then return end
-                        ApplyAudio()
-                    end
-                })
-
-                MascotSection:Button({
-                    Name = "Reset to Default",
-                    Callback = function()
-                        if not MascotObject:ResetToDefault() then
-                            Notify("Error", "Reset failed", "The default mascot is missing from the registry.")
-                            return
-                        end
-
-                        local Now = MascotObject:GetState()
-
-                        Syncing = true
-                        SetFlag("Mascot/Selected", Now.Name)
-                        SetFlag("Mascot/ClickSound", "Default")
-                        SetFlag("Mascot/ClickVolume", math.floor(Now.ClickSoundVolume * 100 + 0.5))
-                        Syncing = false
-
-                        Sync()
-                        ApplyAudio()
-                        Notify("Success", "Mascot reset", "Position, size, rotation and sound restored.")
-                    end
-                })
-
-                Syncing = false
-            end
-
-            do -- Menu
-                Library:LoadUIState()
-                local MenuSection = SettingsPage:Section({Name = "Menu", Icon = "settings", Side = 2})
-
-                MenuSection:Label({Name = "Menu Keybind"}):Keybind({
-                    Name = "Menu Keybind",
-                    Flag = "MenuKeybind",
-                    Default = Enum.KeyCode.X,
-                    Mode = "Toggle",
-                    Callback = function()
-                        local Key = Library.Flags["MenuKeybind"] and Library.Flags["MenuKeybind"].Key
-
-                        -- "None" (Backspace) is ignored so the menu can never be left without a key
-                        if Key and Key ~= "None" then
-                            Library.MenuKeybind = Key
-                        end
-                    end
-                })
-
-                local WatermarkSection = SettingsPage:Section({Name = "Watermark", Icon = "settings", Side = 2})
-                local KeybindSection = SettingsPage:Section({Name = "Keybind List", Icon = "settings", Side = 2})
-                local ESPSection = SettingsPage:Section({Name = "ESP Preview", Icon = "eye", Side = 2})
-                local MascotMenuSection = SettingsPage:Section({Name = "Mascot Visibility", Icon = "smile", Side = 2})
-                local NotificationSection = SettingsPage:Section({Name = "Notifications", Icon = "bell", Side = 2})
-
-                local Toggles = {
-                    { "Watermark", "Watermark" },
-                    { "KeybindList", "Keybind List" },
-                    { "ESPPreview", "ESP Preview" },
-                    { "Mascot", "Mascot" },
-                }
-
-                for _, Entry in Toggles do
-                    local Object = Window[Entry[1]]
-
-                    -- Window.X is also a Library method name, so make sure it is the real object
-                    if type(Object) == "table" and Object.SetVisibility then
-                        (Entry[1] == "Watermark" and WatermarkSection or Entry[1] == "KeybindList" and KeybindSection or Entry[1] == "ESPPreview" and ESPSection or MascotMenuSection):Toggle({
-                            Name = Entry[2],
-                            Flag = Entry[1],
-                            Default = true,
-                            Callback = function(Value)
-                                Object:SetVisibility(Value)
-                            end
-                        })
-                    end
-                end
-
-                -- Related settings are grouped behind compact gear buttons.
-                local WatermarkObject = type(Window.Watermark) == "table" and Window.Watermark.SetFields and Window.Watermark or nil
-                local KeybindListObject = type(Window.KeybindList) == "table" and Window.KeybindList.SetFilter and Window.KeybindList or nil
-
-                if WatermarkObject then
-                    local WatermarkOptions = WatermarkSection
-                    WatermarkOptions:Dropdown({
-                        Name = "Modules",
-                        Flag = "Menu/WatermarkFields",
-                        Items = Library.WatermarkFieldOrder or { "FPS", "Ping", "Place", "Session", "Time", "Date", "Player", "Players", "Memory" },
-                        Default = Library.UIState and Library.UIState.WatermarkFields or { "FPS", "Ping" },
-                        Multi = true,
-                        Callback = function(Value)
-                            if type(Value) == "table" then
-                                WatermarkObject:SetFields(Value)
-                                Library.UIState = Library.UIState or {}
-                                Library.UIState.WatermarkFields = Value
-                                Library:QueueSaveUIState()
-                            end
-                        end
-                    })
-                end
-
-                if KeybindListObject then
-                    local KeybindOptions = KeybindSection
-                    KeybindOptions:Dropdown({
-                        Name = "Display Mode",
-                        Flag = "Menu/KeybindListMode",
-                        Items = { "Only assigned", "Only active", "Show all" },
-                        Default = Library.UIState and Library.UIState.KeybindListMode or "Only assigned",
-                        Callback = function(Value)
-                            KeybindListObject:SetFilter(Value)
-                            Library.UIState = Library.UIState or {}
-                            Library.UIState.KeybindListMode = Value
-                            Library:QueueSaveUIState()
-                        end
-                    })
-                end
-
-                local InterfaceOptions = SettingsPage:Section({Name = "Interface", Icon = "settings", Side = 2})
-                InterfaceOptions:Toggle({
-                    Name = "Search Bar",
-                    Flag = "Menu/SearchBar",
-                    Default = not (Library.UIState and Library.UIState.SearchBar == false),
-                    Callback = function(Value)
-                        if Window.SetSearchVisible then Window:SetSearchVisible(Value) end
-                        Library.UIState = Library.UIState or {}
-                        Library.UIState.SearchBar = Value
-                        Library:QueueSaveUIState()
-                    end
-                })
-                InterfaceOptions:Slider({
-                    Name = "UI Scale",
-                    Flag = "Menu/UIScale",
-                    Min = 50, Max = 150, Step = 5,
-                    Default = math.floor(((Library.UIState and Library.UIState.Scale) or 1) * 100 + 0.5),
-                    Decimals = 0, Suffix = "%",
-                    Callback = function(Value)
-                        Library:SetUIScale(Value / 100)
-                        Library.UIState = Library.UIState or {}
-                        Library.UIState.Scale = Value / 100
-                        Library:QueueSaveUIState()
-                    end
-                })
-                InterfaceOptions:Slider({
-                    Name = "Window Opacity",
-                    Flag = "Menu/WindowOpacity",
-                    Min = 30, Max = 100, Step = 5,
-                    Default = math.floor((1 - ((Library.UIState and Library.UIState.Transparency) or 0)) * 100 + 0.5),
-                    Decimals = 0, Suffix = "%",
-                    Callback = function(Value)
-                        Library:SetWindowOpacity(1 - Value / 100)
-                        Library.UIState = Library.UIState or {}
-                        Library.UIState.Transparency = 1 - Value / 100
-                        Library:QueueSaveUIState()
-                    end
-                })
-                InterfaceOptions:Dropdown({
-                    Name = "Font",
-                    Flag = "Menu/Font",
-                    Items = Library.FontChoices,
-                    Default = (Library.UIState and Library.UIState.Font) or "Figtree",
-                    Callback = function(Value)
-                        Library:SetUIFont(Value)
-                        Library.UIState = Library.UIState or {}
-                        Library.UIState.Font = Value
-                        Library:QueueSaveUIState()
-                    end
-                })
-                InterfaceOptions:Dropdown({
-                    Name = "Notification Side",
-                    Flag = "Menu/NotificationSide",
-                    Items = { "Right", "Left" },
-                    Default = (Library.UIState and Library.UIState.NotifSide) or "Right",
-                    Callback = function(Value)
-                        Library:SetNotificationSide(Value)
-                        Library.UIState = Library.UIState or {}
-                        Library.UIState.NotifSide = Value
-                        Library:QueueSaveUIState()
-                    end
-                })
-                InterfaceOptions:Toggle({
-                    Name = "Theme Animation",
-                    Flag = "Menu/ThemeAnimation",
-                    Default = not (Library.UIState and Library.UIState.ThemeAnimation == false),
-                    Callback = function(Value)
+                local Interface = Panel(Menu:Label({Name = "Interface"}), "Interface Options")
+                Interface:Toggle({Name = "Search Bar", Flag = "UI/SearchBar", Default = State.SearchBar ~= false,
+                    Callback = function(Value) Window:SetSearchVisible(Value) Save("SearchBar", Value) end})
+                Interface:Slider({Name = "UI Scale", Flag = "UI/Scale", Min = 50, Max = 150,
+                    Default = math.floor((State.Scale or 1) * 100 + 0.5), Step = 5, Suffix = "%",
+                    Callback = function(Value) Library:SetUIScale(Value / 100) Save("Scale", Value / 100) end})
+                Interface:Slider({Name = "Opacity", Flag = "UI/Opacity", Min = 30, Max = 100,
+                    Default = math.floor((1 - (State.Transparency or 0)) * 100 + 0.5), Suffix = "%",
+                    Callback = function(Value) Library:SetWindowOpacity(1 - Value / 100) Save("Transparency", 1 - Value / 100) end})
+                Interface:Dropdown({Name = "Font", Flag = "UI/Font", Items = Library.FontChoices,
+                    Default = State.Font or "Figtree", Callback = function(Value) Library:SetUIFont(Value) Save("Font", Value) end})
+                Interface:Toggle({Name = "Theme Animation", Flag = "UI/ThemeAnimation",
+                    Default = State.ThemeAnimation ~= false, Callback = function(Value)
                         Library.ThemeAnimation = Value
-                        Library.UIState = Library.UIState or {}
-                        Library.UIState.ThemeAnimation = Value
-                        Library:QueueSaveUIState()
-                    end
-                })
-                InterfaceOptions:Toggle({
-                    Name = "Remember Position & Tab",
-                    Flag = "Menu/RememberUI",
-                    Default = not (Library.UIState and Library.UIState.RememberUI == false),
-                    Callback = function(Value)
-                        Library.UIState = Library.UIState or {}
-                        Library.UIState.RememberUI = Value
-                        Library:QueueSaveUIState()
-                    end
-                })
+                        Save("ThemeAnimation", Value)
+                    end})
+                Interface:Toggle({Name = "Remember Position & Tab", Flag = "UI/RememberUI",
+                    Default = State.RememberUI ~= false, Callback = function(Value) Save("RememberUI", Value) end})
 
-                local GlowOptions = SettingsPage:Section({Name = "Glow", Icon = "settings", Side = 2})
-                GlowOptions:Toggle({
-                    Name = "Enabled",
-                    Flag = "Menu/GlowEnabled",
-                    Default = Library.MenuGlowEnabled ~= false,
-                    Callback = function(Value)
-                        Library.MenuGlowEnabled = Value
-                        if Library.SetMenuGlow then Library:SetMenuGlow(Library.MenuGlowStrength or 35, Value) end
-                    end
-                })
-                GlowOptions:Slider({
-                    Name = "Strength",
-                    Flag = "Menu/GlowStrength",
-                    Min = 0, Max = 100, Default = Library.MenuGlowStrength or 35,
-                    Suffix = "%", Decimals = 0,
-                    Callback = function(Value)
-                        Library.MenuGlowStrength = Value
-                        if Library.SetMenuGlow then Library:SetMenuGlow(Value, Library.MenuGlowEnabled ~= false) end
-                    end
-                })
+                local Notification = Panel(Menu:Label({Name = "Notifications"}), "Notification Options")
+                Notification:Button({Name = "Test Notification", Callback = function()
+                    local Duration = Library.NotificationDurationRange and Library.NotificationDurationRange.Min or 4
+                    Library:Notification({Name = "dogy visuals", Description = "Notification preview", Duration = Duration})
+                end})
+                Notification:Dropdown({Name = "Notification Side", Flag = "UI/NotifSide",
+                    Items = {"Right", "Left"}, Default = State.NotifSide or "Right",
+                    Callback = function(Value) Library:SetNotificationSide(Value) Save("NotifSide", Value) end})
+                Notification:Dropdown({Name = "Message Sound", Flag = "UI/NotificationSoundMode",
+                    Items = {"None", "Simple click", "Custom"}, Default = "None",
+                    Callback = function(Value) Library.NotificationSoundMode = Value end})
+                Notification:Textbox({Name = "Custom Sound ID", Flag = "UI/NotificationSoundId",
+                    Placeholder = "rbxassetid://...", Default = "", Finished = true,
+                    Callback = function(Value) Library.NotificationCustomSoundId = tostring(Value or "") end})
+                Notification:Slider({Name = "Sound Volume", Flag = "UI/NotificationVolume",
+                    Min = 0, Max = 100, Default = 55, Suffix = "%",
+                    Callback = function(Value) Library.NotificationVolume = Value / 100 end})
+                if type(Notification.RangeSlider) == "function" then
+                    Notification:RangeSlider({Name = "Duration Range", Flag = "UI/NotificationDurationRange",
+                        Min = 1, Max = 12, Default = {Min = 3, Max = 7}, Suffix = "s",
+                        Callback = function(A, B)
+                            if type(A) == "table" then
+                                Library.NotificationDurationRange = A
+                            else
+                                Library.NotificationDurationRange = {Min = A, Max = B}
+                            end
+                        end})
+                end
+
+                local Glow = Panel(Menu:Label({Name = "Glow"}), "Glow Options")
+                Glow:Toggle({Name = "Enabled", Flag = "UI/GlowEnabled", Default = Library.MenuGlowEnabled ~= false,
+                    Callback = function(Value) Library:SetMenuGlow(Library.MenuGlowStrength or 35, Value) end})
+                Glow:Slider({Name = "Strength", Flag = "UI/GlowStrength", Min = 0, Max = 100,
+                    Default = Library.MenuGlowStrength or 35, Suffix = "%",
+                    Callback = function(Value) Library:SetMenuGlow(Value, Library.MenuGlowEnabled ~= false) end})
                 Library:SetMenuGlow(Library.MenuGlowStrength or 35, Library.MenuGlowEnabled ~= false)
 
-                NotificationSection:Dropdown({Name = "Notification Side", Flag = "Menu/NotificationSide2", Items = {"Right", "Left"}, Default = (Library.UIState and Library.UIState.NotifSide) or "Right", Callback = function(Value) Library:SetNotificationSide(Value) Library.UIState = Library.UIState or {} Library.UIState.NotifSide = Value Library:QueueSaveUIState() end})
-                NotificationSection:Button({Name = "Test Notification", Callback = function() Library:Notification({Name = "dogy visuals", Description = "Notification preview", Duration = 4}) end})
-                NotificationSection:Dropdown({Name = "Message Sound", Flag = "Menu/NotifSound", Items = {"Simple click", "None"}, Default = "Simple click"})
-                NotificationSection:Slider({Name = "Sound Volume", Flag = "Menu/NotifVolume", Min = 0, Max = 100, Default = 65, Suffix = "%", Callback = function(Value) Library.NotificationVolume = Value / 100 end})
-                MenuSection:Dropdown({
-                    Name = "UI Click Sound",
-                    Flag = "UIClickSound",
-                    Items = { "Simple click", "None" },
-                    Default = "Simple click",
-                    Callback = function(Value)
-                        Library:SetUIClickSound(Value ~= "None" and "88442833509532" or nil)
-                    end
-                })
-
-                MenuSection:Slider({
-                    Name = "UI Click Volume",
-                    Flag = "UIClickVolume",
-                    Min = 0,
-                    Max = 100,
-                    Default = math.floor((Library.UIClickVolume or 0.65) * 100 + 0.5),
-                    Decimals = 0,
-                    Suffix = "%",
-                    Callback = function(Value)
-                        Library:SetUIClickVolume(Value / 100)
-                    end
-                })
-
-                MenuSection:Divider()
-
-                MenuSection:SubButton({
-                    Name = "Unload",
-                    ConfirmText = "are you sure?",
-                    ConfirmTime = 1.5,
-                    Callback = function()
-                        task.defer(function()
-                            Library:Exit()
-                        end)
-                    end
-                })
+                Menu:Dropdown({Name = "UI Click Sound", Flag = "UIClickSound", Items = {"Simple click", "None"},
+                    Default = "Simple click", Callback = function(Value)
+                        Library:SetUIClickSound(Value == "None" and nil or "88442833509532")
+                    end})
+                Menu:Slider({Name = "UI Click Volume", Flag = "UIClickVolume", Min = 0, Max = 100,
+                    Default = math.floor((Library.UIClickVolume or 0.65) * 100 + 0.5), Suffix = "%",
+                    Callback = function(Value) Library:SetUIClickVolume(Value / 100) end})
+                Menu:Divider()
+                Menu:SubButton({Name = "Unload", ConfirmText = "are you sure?", ConfirmTime = 1.5,
+                    Callback = function() task.defer(function() Library:Exit() end) end})
             end
 
             do -- Interface / Overlays / Share (search, scale, opacity, font, notifications, watermark, keybind list, strings)
@@ -11621,142 +11511,8 @@ end
                     Library:QueueSaveUIState()
                 end
 
-                local InterfaceSection = SettingsPage:Section({Name = "Interface", Icon = "settings", Side = 2, ResetButton = true})
-                InterfaceSection.Items["Section"].Instance.Visible = false
-
-                InterfaceSection:Toggle({
-                    Name = "Search Bar",
-                    Flag = "UI/SearchBar",
-                    Default = State.SearchBar ~= false,
-                    Tooltip = "Search bar at the top of the menu (Ctrl+F focuses it).",
-                    Callback = function(Value)
-                        if Window.SetSearchVisible then
-                            Window:SetSearchVisible(Value)
-                        end
-
-                        State.SearchBar = Value
-                        Save()
-                    end
-                })
-
-                InterfaceSection:Slider({
-                    Name = "UI Scale",
-                    Flag = "UI/Scale",
-                    Min = 50, Max = 150, Step = 5,
-                    Default = math.floor((State.Scale or 1) * 100 + 0.5),
-                    Decimals = 0, Suffix = "%",
-                    Tooltip = "Size of the whole menu. Right click the bar to reset.",
-                    Callback = function(Value)
-                        Library:SetUIScale(Value / 100)
-                        State.Scale = Value / 100
-                        Save()
-                    end
-                })
-
-                InterfaceSection:Slider({
-                    Name = "Window Opacity",
-                    Flag = "UI/Opacity",
-                    Min = 30, Max = 100, Step = 5,
-                    Default = math.floor((1 - (State.Transparency or 0)) * 100 + 0.5),
-                    Decimals = 0, Suffix = "%",
-                    Callback = function(Value)
-                        Library:SetWindowOpacity(1 - Value / 100)
-                        State.Transparency = 1 - Value / 100
-                        Save()
-                    end
-                })
-
-                InterfaceSection:Dropdown({
-                    Name = "Font",
-                    Flag = "UI/Font",
-                    Items = Library.FontChoices,
-                    Default = State.Font or "Figtree",
-                    Callback = function(Value)
-                        Library:SetUIFont(Value)
-                        State.Font = Value
-                        Save()
-                    end
-                })
-
-                InterfaceSection:Dropdown({
-                    Name = "Notification Side",
-                    Flag = "UI/NotifSide",
-                    Items = { "Right", "Left" },
-                    Default = State.NotifSide or "Right",
-                    Tooltip = "Notifications always appear at the top, on this side.",
-                    Callback = function(Value)
-                        Library:SetNotificationSide(Value)
-                        State.NotifSide = Value
-                        Save()
-                    end
-                })
-
-                InterfaceSection:Toggle({
-                    Name = "Theme Animation",
-                    Flag = "UI/ThemeAnimation",
-                    Default = State.ThemeAnimation ~= false,
-                    Tooltip = "Colors fade smoothly when a theme is applied.",
-                    Callback = function(Value)
-                        Library.ThemeAnimation = Value
-                        State.ThemeAnimation = Value
-                        Save()
-                    end
-                })
-
-                InterfaceSection:Toggle({
-                    Name = "Remember Position & Tab",
-                    Flag = "UI/RememberUI",
-                    Default = State.RememberUI ~= false,
-                    Callback = function(Value)
-                        State.RememberUI = Value
-                        Save()
-                    end
-                })
-
-                local OverlaySection = SettingsPage:Section({Name = "Overlays", Icon = "keyboard", Side = 2, ResetButton = true})
-                OverlaySection.Items["Section"].Instance.Visible = false
-
-                local WatermarkObject = type(Window.Watermark) == "table" and Window.Watermark.SetFields and Window.Watermark or nil
-                local KeybindListObject = type(Window.KeybindList) == "table" and Window.KeybindList.SetFilter and Window.KeybindList or nil
-
-                if WatermarkObject then
-                    local DefaultFields = State.WatermarkFields
-
-                    if type(DefaultFields) ~= "table" or #DefaultFields == 0 then
-                        DefaultFields = { "FPS", "Ping" }
-                    end
-
-                    OverlaySection:Dropdown({
-                        Name = "Watermark Info",
-                        Flag = "UI/WatermarkFields",
-                        Items = Library.WatermarkFieldOrder or { "FPS", "Ping" },
-                        Default = DefaultFields,
-                        Multi = true,
-                        Tooltip = "Pick what the watermark shows: FPS, ping, place, session time...",
-                        Callback = function(Value)
-                            if type(Value) == "table" then
-                                WatermarkObject:SetFields(Value)
-                                State.WatermarkFields = Value
-                                Save()
-                            end
-                        end
-                    })
-                end
-
-                if KeybindListObject then
-                    OverlaySection:Dropdown({
-                        Name = "Keybind List Mode",
-                        Flag = "UI/KeybindListMode",
-                        Items = { "Only assigned", "Only active", "Show all" },
-                        Default = State.KeybindListMode or "Only assigned",
-                        Tooltip = "Only assigned: binds that have a key. Only active: binds that are on right now.",
-                        Callback = function(Value)
-                            KeybindListObject:SetFilter(Value)
-                            State.KeybindListMode = Value
-                            Save()
-                        end
-                    })
-                end
+                -- Interface, overlays, Mascot, Glow and notifications are all in Menu Options above.
+                -- Share/config export remains its own functional section (no hidden duplicates).
 
                 local ShareSection = SettingsPage:Section({Name = "Share", Icon = "clipboard", Side = 1})
 
