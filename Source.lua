@@ -38,7 +38,7 @@ local GuiInset = GuiService:GetGuiInset().Y
 local Mouse = cloneref(LocalPlayer:GetMouse())
 
 local Library = {
-    BuildVersion = "2026.10.29-v13-single-menu",
+    BuildVersion = "2026.10.29-v15-ui-fixes",
     Flags = { },
 
     MenuKeybind = tostring(Enum.KeyCode.X),
@@ -93,6 +93,8 @@ local Library = {
     UIClickSound = nil,
     MascotClickSound = nil,
     UIClickVolume = 0.65,
+    UIClickEnabled = true,
+    NotificationEnabled = true,
     MascotClickVolume = 0.8,
 } do
     Library.__index = Library
@@ -568,8 +570,11 @@ local Library = {
 
     Library.SetUIClickSound = function(Self, SoundId)
         Library.UIClickSoundId = Self:NormalizeSoundId(SoundId)
+        Library.UIClickEnabled = Library.UIClickSoundId ~= nil
         if Library.UIClickSound then
+            Library.UIClickSound:Stop()
             Library.UIClickSound.SoundId = Library.UIClickSoundId or ""
+            Library.UIClickSound.Volume = Library.UIClickEnabled and (Library.UIClickVolume or 0.65) or 0
         end
         return Library.UIClickSoundId
     end
@@ -584,7 +589,7 @@ local Library = {
 
     Library.PlayUIClickSound = function(Self)
         local Sound = Library.UIClickSound
-        if not Sound or not Sound.Parent or not Library.UIClickSoundId then return end
+        if not Sound or not Sound.Parent or Library.UIClickEnabled == false or not Library.UIClickSoundId then return end
         Sound.SoundId = Library.UIClickSoundId
         Sound.TimePosition = 0
         pcall(function() SoundService:PlayLocalSound(Sound) end)
@@ -854,61 +859,48 @@ local Library = {
     end
 
     Library.MakeDraggable = function(Self, Handle)
-        if not Self.Instance then
-            return
-        end
-
+        if not Self.Instance then return end
         local Gui = Self.Instance
         local HandleInstance = (Handle and Handle.Instance) or Gui
-        local Dragging = false
-        local DragStart
-        local StartPosition
-
-        local Set = function(Input)
-            local DragDelta = Input.Position - DragStart
-            local NewX = StartPosition.X.Offset + DragDelta.X
-            local NewY = StartPosition.Y.Offset + DragDelta.Y
-
-            local ScreenSize = Gui.Parent.AbsoluteSize
-            local GuiSize = Gui.AbsoluteSize
-
-            NewX = math.clamp(NewX, 0, ScreenSize.X - GuiSize.X)
-            NewY = math.clamp(NewY, 0, ScreenSize.Y - GuiSize.Y)
-
-            Self:Tween({Position = UDim2.new(0, NewX, 0, NewY)}, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out))
-        end
-
-        local InputChanged
+        local Dragging, DragStart, StartAbsolute
+        local CurrentTween
 
         Library:Connect(HandleInstance.InputBegan, function(Input)
-            if Input.UserInputType == Enum.UserInputType.MouseButton1 or Input.UserInputType == Enum.UserInputType.Touch then
-                Dragging = true
-                DragStart = Input.Position
-                StartPosition = Gui.Position
-
-                if InputChanged then
-                    return
+            if Input.UserInputType ~= Enum.UserInputType.MouseButton1
+                and Input.UserInputType ~= Enum.UserInputType.Touch then return end
+            Dragging = true
+            DragStart = Input.Position
+            StartAbsolute = Gui.AbsolutePosition
+            -- No listener leak: the end connection is scoped to each pointer down.
+            local EndConnection
+            EndConnection = Input.Changed:Connect(function()
+                if Input.UserInputState == Enum.UserInputState.End then
+                    Dragging = false
+                    if EndConnection then EndConnection:Disconnect() end
                 end
-
-                InputChanged = Input.Changed:Connect(function()
-                    if Input.UserInputState == Enum.UserInputState.End then
-                        Dragging = false
-                        InputChanged:Disconnect()
-                        InputChanged = nil
-                    end
-                end)
-            end
+            end)
         end)
 
         Library:Connect(UserInputService.InputChanged, function(Input)
-            if Input.UserInputType == Enum.UserInputType.MouseMovement or Input.UserInputType == Enum.UserInputType.Touch then
-                if Dragging then
-                    Set(Input)
-                end
-            end
+            if not Dragging then return end
+            if Input.UserInputType ~= Enum.UserInputType.MouseMovement
+                and Input.UserInputType ~= Enum.UserInputType.Touch then return end
+            local Delta = Input.Position - DragStart
+            local Screen = Gui.Parent.AbsoluteSize
+            local Size = Gui.AbsoluteSize
+            -- Keep just the title strip accessible, rather than locking the whole
+            -- window inside the monitor. AnchorPoint is accounted for explicitly.
+            local X = math.clamp(StartAbsolute.X + Delta.X, -Size.X + 90, Screen.X - 90)
+            local Y = math.clamp(StartAbsolute.Y + Delta.Y, -Size.Y + 55, Screen.Y - 44)
+            local ParentPosition = Gui.Parent:IsA("GuiObject") and Gui.Parent.AbsolutePosition or Vector2.zero
+            local Destination = UDim2.fromOffset(
+                math.floor(X - ParentPosition.X + Size.X * Gui.AnchorPoint.X + 0.5),
+                math.floor(Y - ParentPosition.Y + Size.Y * Gui.AnchorPoint.Y + 0.5)
+            )
+            if CurrentTween then CurrentTween:Cancel() end
+            CurrentTween = Self:Tween({Position = Destination},
+                TweenInfo.new(0.12, Enum.EasingStyle.Quart, Enum.EasingDirection.Out))
         end)
-
-        return Dragging
     end
 
     Library.ConvertAnchor = function(Self)
@@ -1295,6 +1287,12 @@ local Library = {
                     end
                 end
             end
+        end
+
+        -- Live accent edits (including the theme colorpicker) must update glow.
+        -- Notification card elements are already bound via AddToTheme.
+        if Theme == "Accent" and Library.SetMenuGlow then
+            Library:SetMenuGlow(Library.MenuGlowStrength or 35, Library.MenuGlowEnabled ~= false)
         end
     end
 
@@ -3468,7 +3466,7 @@ Library.PlayNotificationSound = function(Self)
     if Library.NotificationSoundMode == "Custom" then
         Id = Library:NormalizeSoundId(Library.NotificationCustomSoundId)
     else
-        Id = Library:NormalizeSoundId(Library.UIClickSoundId)
+        Id = "rbxassetid://88442833509532"
     end
     if not Id then return end
     local Sound = Library.NotificationSound
@@ -3489,7 +3487,7 @@ Library.SetUIClickVolume = function(Self, Volume)
     if not Volume then return end
     Self.UIClickVolume = math.clamp(Volume, 0, 1)
     if Self.UIClickSound then
-        Self.UIClickSound.Volume = Self.UIClickVolume
+        Self.UIClickSound.Volume = (Self.UIClickEnabled == false) and 0 or Self.UIClickVolume
     end
 end
 
@@ -4249,11 +4247,16 @@ Library.Watermark = function(Self, Params)
         Library.Notification = function(Self, Params)
             Params = Params or { }
 
+            if Library.NotificationEnabled == false then return nil end
             if Library.PlayNotificationSound then Library:PlayNotificationSound() end
-            local Name = tostring(Params.Name or Params.name or Params.Title or Params.title or "Notification")
+            local Window = Library.ActiveWindow
+            local Name = tostring(Window and Window.Name or "Dogy Visuals")
+            local Subject = tostring(Params.Name or Params.name or Params.Title or Params.title or "")
             local Description = tostring(Params.Description or Params.description or "")
+            if Subject ~= "" and Subject ~= Name then
+                Description = Subject .. (Description ~= "" and ("  ·  " .. Description) or "")
+            end
             local Duration = math.max(tonumber(Params.Duration or Params.duration) or 4, 0.5)
-            local Type = Params.Type or Params.type
             local Color = Library.Theme["Accent"]
             local Key = Name .. "\n" .. Description
 
@@ -4910,7 +4913,8 @@ Library.Watermark = function(Self, Params)
                     BackgroundColor3 = Library.Theme["Background"]
                 }):AddToTheme({BackgroundColor3 = 'Background'})
 
-                Items["MainFrame"]:MakeResizeable(Vector2.new(420, 360))
+                -- Resize handled by the small footer grip only.
+                -- High-Z edge handles previously obscured colorpickers and dropdowns.
 
                 Library:Create("UICorner", {
                     Name = "\0",
@@ -5020,7 +5024,8 @@ Library.Watermark = function(Self, Params)
                     Parent = Items["MainFrame"].Instance,
                     BackgroundTransparency = 1,
                     Position = UDim2.new(0, 0, 0, 56),
-                    Size = UDim2.new(1, 0, 1, -80),
+                    Size = UDim2.new(1, 0, 1, -83),
+                    ClipsDescendants = true,
                     BorderSizePixel = 0,
                     BackgroundColor3 = Library.Theme["Text"]
                 }):AddToTheme({BackgroundColor3 = 'Text'})
@@ -5032,7 +5037,9 @@ Library.Watermark = function(Self, Params)
                 Footer.Name = "DogyFooter"
                 Footer.AnchorPoint = Vector2.new(0, 1)
                 Footer.Position = UDim2.new(0, 0, 1, 0)
-                Footer.Size = UDim2.new(1, 0, 0, 22)
+                Footer.Size = UDim2.new(1, -2, 0, 24)
+                Footer.Position = UDim2.new(0, 1, 1, -1)
+                Footer.ClipsDescendants = true
                 Footer.BackgroundTransparency = 0
                 Footer.BackgroundColor3 = Library.Theme["Background"]
                 Footer.BorderSizePixel = 0
@@ -5040,7 +5047,7 @@ Library.Watermark = function(Self, Params)
                 Footer.Parent = Items["MainFrame"].Instance
                 -- Rounded bottom edge; avoid the rectangular footer covering the main corner.
                 local FooterCorner = Instance.new("UICorner")
-                FooterCorner.CornerRadius = UDim.new(0, 10)
+                FooterCorner.CornerRadius = UDim.new(0, 9)
                 FooterCorner.Parent = Footer
                 Library.AddToTheme({Instance = Footer}, {BackgroundColor3 = "Background"})
 
@@ -5099,8 +5106,8 @@ Library.Watermark = function(Self, Params)
                     local ScaleObject = Frame:FindFirstChild("UserScale")
                     local Scale = ScaleObject and ScaleObject.Scale or 1
                     local Delta = (UserInputService:GetMouseLocation() - GripStartMouse) / Scale
-                    local Width = math.clamp(GripStartSize.X + Delta.X, 420, math.max(420, View.X / Scale - 12))
-                    local Height = math.clamp(GripStartSize.Y + Delta.Y, 360, math.max(360, View.Y / Scale - 12))
+                    local Width = math.clamp(GripStartSize.X + Delta.X, 420, math.max(420, View.X / Scale + 250))
+                    local Height = math.clamp(GripStartSize.Y + Delta.Y, 360, math.max(360, View.Y / Scale + 250))
                     Frame.Size = UDim2.fromOffset(Width, Height)
                 end)
             end
@@ -5703,7 +5710,7 @@ Library.Watermark = function(Self, Params)
                     Parent = Items["LeftColumn"].Instance,
                     PaddingTop = UDim.new(0, 10),
                     PaddingLeft = UDim.new(0, 10),
-                    PaddingBottom = UDim.new(0, 10)
+                    PaddingBottom = UDim.new(0, 25)
                 })
 
                 Library:Create("UIListLayout", {
@@ -5712,6 +5719,13 @@ Library.Watermark = function(Self, Params)
                     Padding = UDim.new(0, 10),
                     SortOrder = Enum.SortOrder.LayoutOrder
                 })
+                local Layout = Items["LeftColumn"].Instance:FindFirstChildOfClass("UIListLayout")
+                if Layout then
+                    Library:Connect(Layout:GetPropertyChangedSignal("AbsoluteContentSize"), function()
+                        local Scroller = Items["LeftColumn"].Instance
+                        Scroller.CanvasSize = UDim2.fromOffset(0, Layout.AbsoluteContentSize.Y + 48)
+                    end)
+                end
 
                 Items["RightColumn"] = Library:Create("ScrollingFrame", {
                     Name = "\0",
@@ -5731,7 +5745,7 @@ Library.Watermark = function(Self, Params)
                     Parent = Items["RightColumn"].Instance,
                     PaddingTop = UDim.new(0, 10),
                     PaddingRight = UDim.new(0, 10),
-                    PaddingBottom = UDim.new(0, 10)
+                    PaddingBottom = UDim.new(0, 25)
                 })
 
                 Library:Create("UIListLayout", {
@@ -5740,6 +5754,13 @@ Library.Watermark = function(Self, Params)
                     Padding = UDim.new(0, 10),
                     SortOrder = Enum.SortOrder.LayoutOrder
                 })
+                local Layout = Items["RightColumn"].Instance:FindFirstChildOfClass("UIListLayout")
+                if Layout then
+                    Library:Connect(Layout:GetPropertyChangedSignal("AbsoluteContentSize"), function()
+                        local Scroller = Items["RightColumn"].Instance
+                        Scroller.CanvasSize = UDim2.fromOffset(0, Layout.AbsoluteContentSize.Y + 48)
+                    end)
+                end
 
                 Page.ColumnsData[1] = Items["LeftColumn"]
                 Page.ColumnsData[2] = Items["RightColumn"]
@@ -5846,6 +5867,81 @@ end
             return setmetatable(Page, Library)
         end
 
+-- Built-in names use the icon IDs published by icons.rest.
+-- The optional Icons.lua remote module can extend this to the full catalog.
+Library.Lucide = {
+    ["accessibility"] = "10709751939",
+    ["activity"] = "10709752035",
+    ["air-vent"] = "10709752131",
+    ["alarm-clock"] = "10709752630",
+    ["alarm-clock-off"] = "10709752508",
+    ["alarm-minus"] = "10709752732",
+    ["alert-circle"] = "10709752996",
+    ["align-center"] = "10709753570",
+    ["align-left"] = "10709759764",
+    ["book-open"] = "84762150530577",
+    ["bot"] = "70979486241131",
+    ["briefcase"] = "78701740878808",
+    ["calendar"] = "126460151885084",
+    ["camera"] = "114084146151777",
+    ["check"] = "86817768619372",
+    ["chevron-down"] = "71457658246709",
+    ["chevron-left"] = "102314312897830",
+    ["chevron-right"] = "101007429951147",
+    ["chevron-up"] = "98648581502859",
+    ["circle-check"] = "88244323237265",
+    ["code"] = "75851496262862",
+    ["cog"] = "123222732420633",
+    ["copy"] = "116378866141355",
+    ["crosshair"] = "83752373575368",
+    ["eye"] = "127234874352422",
+    ["file"] = "108499043987115",
+    ["folder"] = "77937190465422",
+    ["github"] = "140138081031269",
+    ["globe"] = "125685532120024",
+    ["heart"] = "88525382655929",
+    ["home"] = "109841253338329",
+    ["image"] = "114022611279795",
+    ["info"] = "120620848266512",
+    ["key"] = "83474888140571",
+    ["layout-dashboard"] = "70433574792490",
+    ["link"] = "86131768436965",
+    ["list"] = "101699539545687",
+    ["lock"] = "119765975153029",
+    ["log-out"] = "140299936053191",
+    ["mail"] = "77537514051485",
+    ["package"] = "106101842173393",
+    ["palette"] = "127369887384101",
+    ["play"] = "76386816441302",
+    ["plus"] = "101123124881873",
+    ["power"] = "89331085993646",
+    ["save"] = "122894934359450",
+    ["search"] = "72296609649861",
+    ["settings"] = "106205298246017",
+    ["settings-2"] = "109485777305919",
+    ["shield"] = "106509993556171",
+    ["shopping-cart"] = "79435149356304",
+    ["sliders-horizontal"] = "125396339381135",
+    ["star"] = "72669221096319",
+    ["target"] = "121091323240554",
+    ["terminal"] = "102379915564176",
+    ["trash"] = "94712995845562",
+    ["trash-2"] = "126010725826757",
+}
+
+Library.RegisterLucideIcons = function(Self, Icons)
+    if type(Icons) ~= "table" then return false end
+    for Name, Id in Icons do
+        local Key = tostring(Name):lower():gsub("^lucide%-", ""):gsub("_", "-")
+        local Number = tostring(Id):match("(%d+)")
+        if Number then
+            Library.Lucide[Key] = Number
+            Library.IconCache[Key] = nil
+        end
+    end
+    return true
+end
+
 -- ICONS ------------------------------------------------------
 -- Icon может быть: "eye" (название из Icons.lua), "rbxassetid://123", 123 (число), "rbxthumb://..."
 -- GetIcon возвращает таблицу {Image, ImageRectSize, ImageRectOffset} или nil
@@ -5877,7 +5973,7 @@ Library.LoadIcons = function(Self)
         Library.IconModule = Module
     else
         Library.IconModule = false
-        Library:IconError("Failed to load Icons.lua: " .. tostring(Module):sub(1, 150))
+        warn("[Dogy Visuals] Optional Icons.lua unavailable: " .. tostring(Module):sub(1, 150))
     end
 
     return Library.IconModule or nil
@@ -5900,19 +5996,24 @@ Library.GetIcon = function(Self, Icon)
         return { Image = Icon }
     end
 
-    local Cached = Library.IconCache[Icon]
-    if Cached ~= nil then
-        return Cached or nil
+    local Key = Icon:lower():gsub("^lucide%-", ""):gsub("_", "-"):gsub("%s+", "-")
+    local Cached = Library.IconCache[Key]
+    if Cached ~= nil then return Cached or nil end
+
+    local Builtin = Library.Lucide[Key]
+    if Builtin then
+        local Data = {Image = "rbxassetid://" .. tostring(Builtin)}
+        Library.IconCache[Key] = Data
+        return Data
     end
 
+    -- The optional Github Icons.lua module may contain many more icons.
     local Module = Library:LoadIcons()
-    local Data = Module and Module.Get(Icon) or nil
-
-    if not Data and Module then
-        Library:IconError('Unknown icon "' .. Icon .. '"')
+    local Data = Module and (Module.Get(Key) or Module.Get("lucide-" .. Key)) or nil
+    if type(Data) == "string" then
+        Data = {Image = Data}
     end
-
-    Library.IconCache[Icon] = Data or false
+    Library.IconCache[Key] = Data or false
     return Data
 end
 
@@ -6423,14 +6524,15 @@ end
                 local X = GearButton.AbsolutePosition.X + GearButton.AbsoluteSize.X
                 X = math.clamp(X, Options.Width + 8, math.max(Screen.X - 8, Options.Width + 8))
 
-                local Y = GearButton.AbsolutePosition.Y + GearButton.AbsoluteSize.Y + GuiInset + 6
+                local Y = GearButton.AbsolutePosition.Y + GearButton.AbsoluteSize.Y + 3
                 local Direction = 1
 
                 if Height > 0 and Y + Height > Screen.Y - 8 then
-                    Y = GearButton.AbsolutePosition.Y + GuiInset - Height - 6
+                    Y = GearButton.AbsolutePosition.Y - Height - 3
                     Direction = -1
                 end
 
+                Y = math.clamp(Y, 5, math.max(5, Screen.Y - Height - 5))
                 -- whole pixels only: fractional offsets make Roblox text blurry / shimmery
                 return UDim2.fromOffset(math.floor(X + 0.5), math.floor(Y + Offset * Direction + 0.5))
             end
@@ -8086,11 +8188,12 @@ end
                 local ShowAbove = AvailableBottom < math.min(Desired, 100) and AvailableTop > AvailableBottom
                 local Available = ShowAbove and AvailableTop or AvailableBottom
                 local Height = math.max(50, math.min(Desired, math.max(50, Available - 5)))
-                local X = math.clamp(Position.X, 4, math.max(4, Screen.X - Size.X - 4))
-                local Y = ShowAbove and (Position.Y - Height - 4) or (Position.Y + Size.Y + 4)
+                local PopupWidth = math.max(Size.X, 90)
+                local X = math.clamp(Position.X, 4, math.max(4, Screen.X - PopupWidth - 4))
+                local Y = ShowAbove and (Position.Y - Height - 1) or (Position.Y + Size.Y + 1)
                 Y = math.clamp(Y, 4, math.max(4, Screen.Y - Height - 4))
                 OptionHolder.Position = UDim2.fromOffset(X, Y)
-                OptionHolder.Size = UDim2.fromOffset(math.max(Size.X, 90), Height)
+                OptionHolder.Size = UDim2.fromOffset(PopupWidth, Height)
             end
 
             function Dropdown:SetOpen(Bool)
@@ -10640,6 +10743,8 @@ end
                     Glow.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
                     Glow.LineJoinMode = Enum.LineJoinMode.Round
                     Glow.Parent = Frame
+                    -- Register with the normal accent theming system on creation.
+                    Library.AddToTheme({Instance = Glow}, {Color = "Accent"})
                 end
                 Glow.Color = Accent
                 Glow.Thickness = Spec.Thickness
@@ -11330,6 +11435,8 @@ end
             do
                 local State = Library:LoadUIState()
                 local Menu = SettingsPage:Section({Name = "Menu", Icon = "settings", Side = 2, ResetButton = false})
+                -- The Menu section is shown first in the UI Settings right column.
+                Menu.Items.Section.Instance.LayoutOrder = -100
                 local function Save(Field, Value)
                     State[Field] = Value
                     Library:QueueSaveUIState()
@@ -11460,10 +11567,13 @@ end
                 Interface:Toggle({Name = "Remember Position & Tab", Flag = "UI/RememberUI",
                     Default = State.RememberUI ~= false, Callback = function(Value) Save("RememberUI", Value) end})
 
-                local Notification = Panel(Menu:Label({Name = "Notifications"}), "Notification Options")
+                local NotificationRow = Menu:Toggle({Name = "Notifications", Flag = "UI/NotificationsEnabled",
+                    Default = Library.NotificationEnabled ~= false,
+                    Callback = function(Value) Library.NotificationEnabled = Value end})
+                local Notification = Panel(NotificationRow, "Notification Options")
                 Notification:Button({Name = "Test Notification", Callback = function()
                     local Duration = Library.NotificationDurationRange and Library.NotificationDurationRange.Min or 4
-                    Library:Notification({Name = "dogy visuals", Description = "Notification preview", Duration = Duration})
+                    Library:Notification({Description = "Notification preview", Duration = Duration})
                 end})
                 Notification:Dropdown({Name = "Notification Side", Flag = "UI/NotifSide",
                     Items = {"Right", "Left"}, Default = State.NotifSide or "Right",
@@ -11489,9 +11599,10 @@ end
                         end})
                 end
 
-                local Glow = Panel(Menu:Label({Name = "Glow"}), "Glow Options")
-                Glow:Toggle({Name = "Enabled", Flag = "UI/GlowEnabled", Default = Library.MenuGlowEnabled ~= false,
+                local GlowRow = Menu:Toggle({Name = "Glow", Flag = "UI/GlowEnabled",
+                    Default = Library.MenuGlowEnabled ~= false,
                     Callback = function(Value) Library:SetMenuGlow(Library.MenuGlowStrength or 35, Value) end})
+                local Glow = Panel(GlowRow, "Glow Options")
                 Glow:Slider({Name = "Strength", Flag = "UI/GlowStrength", Min = 0, Max = 100,
                     Default = Library.MenuGlowStrength or 35, Suffix = "%",
                     Callback = function(Value) Library:SetMenuGlow(Value, Library.MenuGlowEnabled ~= false) end})
