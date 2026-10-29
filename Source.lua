@@ -3507,6 +3507,8 @@ Library.Watermark = function(Self, Params)
                     AutomaticSize = Enum.AutomaticSize.XY
                 }):AddToTheme({TextColor3 = 'Text'})
 
+                Items["MainFrame"]:MakeDraggable(Items["Top"])
+
                 Items["Logo"] = Library:Create("ImageLabel", {
                     Name = "\0",
                     Parent = Items["Main"].Instance,
@@ -4181,7 +4183,7 @@ Library.Watermark = function(Self, Params)
             local Description = tostring(Params.Description or Params.description or "")
             local Duration = math.max(tonumber(Params.Duration or Params.duration) or 4, 0.5)
             local Type = Params.Type or Params.type
-            local Color = Params.Color or Params.color or (Type and Library.NotificationTypes[Type]) or Library.Theme.Accent
+            local Color = Library.Theme["Accent"]
             local Key = Name .. "\n" .. Description
 
             for _, Existing in Library.Notifications do
@@ -4226,7 +4228,7 @@ Library.Watermark = function(Self, Params)
                 AutomaticSize = Enum.AutomaticSize.Y,
                 BackgroundTransparency = 1,
                 BackgroundColor3 = Library.Theme["Inline"]
-            })
+            }):AddToTheme({BackgroundColor3 = "Inline"})
 
             Library:Create("UICorner", {
                 Name = "\0",
@@ -4240,7 +4242,7 @@ Library.Watermark = function(Self, Params)
                 Color = Library.Theme["Outline"],
                 Transparency = 1,
                 ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-            })
+            }):AddToTheme({Color = "Outline"})
 
             Items["Accent"] = Library:Create("Frame", {
                 Name = "\0",
@@ -4249,7 +4251,7 @@ Library.Watermark = function(Self, Params)
                 Size = UDim2.new(0, 3, 1, 0),
                 BackgroundTransparency = 1,
                 BackgroundColor3 = Color
-            })
+            }):AddToTheme({BackgroundColor3 = "Accent"})
 
             Items["Body"] = Library:Create("Frame", {
                 Name = "\0",
@@ -4837,7 +4839,6 @@ Library.Watermark = function(Self, Params)
                     BackgroundColor3 = Library.Theme["Background"]
                 }):AddToTheme({BackgroundColor3 = 'Background'})
 
-                Items["MainFrame"]:MakeDraggable(Items["Top"])
                 Items["MainFrame"]:MakeResizeable(Vector2.new(420, 360))
 
                 Library:Create("UICorner", {
@@ -5153,7 +5154,7 @@ Library.Watermark = function(Self, Params)
                     Name = "\0",
                     Parent = Self.Items["MainFrame"].Instance,
                     AnchorPoint = Vector2.new(0.5, 0.5),
-                    Position = UDim2.new(0.5, Mascot.Offset.X, 0.5, Mascot.Offset.Y),
+                    Position = UDim2.new(0, 280 + Mascot.Offset.X, 0, 280 + Mascot.Offset.Y),
                     Size = BaseSize,
                     Rotation = Mascot.Rotation,
                     BackgroundTransparency = 1,
@@ -5342,7 +5343,7 @@ Library.Watermark = function(Self, Params)
                 Y = tonumber(Y) or 0
 
                 Mascot.Offset = Vector2.new(X, Y)
-                Items["Image"].Instance.Position = UDim2.new(0.5, X, 0.5, Y)
+                Items["Image"].Instance.Position = UDim2.new(0, 280 + X, 0, 280 + Y)
                 Items["Image"].Instance.ZIndex = Mascot.ZIndex
             end
 
@@ -5364,7 +5365,7 @@ Library.Watermark = function(Self, Params)
                 -- Mascot coordinates are relative to the center of the GUI:
                 -- 0,0 = center, negative X = left, positive X = right,
                 -- negative Y = up, positive Y = down.
-                Items["Image"].Instance.Position = UDim2.new(0.5, Mascot.Offset.X, 0.5, Mascot.Offset.Y)
+                Items["Image"].Instance.Position = UDim2.new(0, 280 + Mascot.Offset.X, 0, 280 + Mascot.Offset.Y)
                 Items["Image"].Instance.ZIndex = Mascot.ZIndex
 
                 if Mascot.Visible and Mascot.Loaded then
@@ -11364,6 +11365,12 @@ end
                     end
                 })
 
+                local WatermarkSection = SettingsPage:Section({Name = "Watermark", Icon = "settings", Side = 2})
+                local KeybindSection = SettingsPage:Section({Name = "Keybind List", Icon = "settings", Side = 2})
+                local ESPSection = SettingsPage:Section({Name = "ESP Preview", Icon = "eye", Side = 2})
+                local MascotMenuSection = SettingsPage:Section({Name = "Mascot Visibility", Icon = "smile", Side = 2})
+                local NotificationSection = SettingsPage:Section({Name = "Notifications", Icon = "bell", Side = 2})
+
                 local Toggles = {
                     { "Watermark", "Watermark" },
                     { "KeybindList", "Keybind List" },
@@ -11376,7 +11383,7 @@ end
 
                     -- Window.X is also a Library method name, so make sure it is the real object
                     if type(Object) == "table" and Object.SetVisibility then
-                        MenuSection:Toggle({
+                        (Entry[1] == "Watermark" and WatermarkSection or Entry[1] == "KeybindList" and KeybindSection or Entry[1] == "ESPPreview" and ESPSection or MascotMenuSection):Toggle({
                             Name = Entry[2],
                             Flag = Entry[1],
                             Default = true,
@@ -11387,35 +11394,12 @@ end
                     end
                 end
 
-                MenuSection:Dropdown({
-                    Name = "UI Click Sound",
-                    Flag = "UIClickSound",
-                    Items = { "Simple click", "None" },
-                    Default = "Simple click",
-                    Callback = function(Value)
-                        Library:SetUIClickSound(Value ~= "None" and "88442833509532" or nil)
-                    end
-                })
-
-                MenuSection:Slider({
-                    Name = "UI Click Volume",
-                    Flag = "UIClickVolume",
-                    Min = 0,
-                    Max = 100,
-                    Default = math.floor((Library.UIClickVolume or 0.65) * 100 + 0.5),
-                    Decimals = 0,
-                    Suffix = "%",
-                    Callback = function(Value)
-                        Library:SetUIClickVolume(Value / 100)
-                    end
-                })
-
                 -- Related settings are grouped behind compact gear buttons.
                 local WatermarkObject = type(Window.Watermark) == "table" and Window.Watermark.SetFields and Window.Watermark or nil
                 local KeybindListObject = type(Window.KeybindList) == "table" and Window.KeybindList.SetFilter and Window.KeybindList or nil
 
                 if WatermarkObject then
-                    local WatermarkOptions = MenuSection:Label({Name = "Watermark Options"}):Options({Name = "Watermark", Icon = "settings", Width = 236})
+                    local WatermarkOptions = WatermarkSection
                     WatermarkOptions:Dropdown({
                         Name = "Modules",
                         Flag = "Menu/WatermarkFields",
@@ -11434,7 +11418,7 @@ end
                 end
 
                 if KeybindListObject then
-                    local KeybindOptions = MenuSection:Label({Name = "Keybind List Options"}):Options({Name = "Keybind List", Icon = "settings", Width = 236})
+                    local KeybindOptions = KeybindSection
                     KeybindOptions:Dropdown({
                         Name = "Display Mode",
                         Flag = "Menu/KeybindListMode",
@@ -11449,7 +11433,7 @@ end
                     })
                 end
 
-                local InterfaceOptions = MenuSection:Label({Name = "Interface Options"}):Options({Name = "Interface", Icon = "settings", Width = 236})
+                local InterfaceOptions = SettingsPage:Section({Name = "Interface", Icon = "settings", Side = 2})
                 InterfaceOptions:Toggle({
                     Name = "Search Bar",
                     Flag = "Menu/SearchBar",
@@ -11533,7 +11517,7 @@ end
                     end
                 })
 
-                local GlowOptions = MenuSection:Label({Name = "Menu Glow"}):Options({Name = "Accent Glow", Icon = "settings", Width = 236})
+                local GlowOptions = SettingsPage:Section({Name = "Glow", Icon = "settings", Side = 2})
                 GlowOptions:Toggle({
                     Name = "Enabled",
                     Flag = "Menu/GlowEnabled",
@@ -11554,6 +11538,33 @@ end
                     end
                 })
                 Library:SetMenuGlow(Library.MenuGlowStrength or 35, Library.MenuGlowEnabled ~= false)
+
+                NotificationSection:Dropdown({Name = "Notification Side", Flag = "Menu/NotificationSide2", Items = {"Right", "Left"}, Default = (Library.UIState and Library.UIState.NotifSide) or "Right", Callback = function(Value) Library:SetNotificationSide(Value) Library.UIState = Library.UIState or {} Library.UIState.NotifSide = Value Library:QueueSaveUIState() end})
+                NotificationSection:Button({Name = "Test Notification", Callback = function() Library:Notification({Name = "dogy visuals", Description = "Notification preview", Duration = 4}) end})
+                NotificationSection:Dropdown({Name = "Message Sound", Flag = "Menu/NotifSound", Items = {"Simple click", "None"}, Default = "Simple click"})
+                NotificationSection:Slider({Name = "Sound Volume", Flag = "Menu/NotifVolume", Min = 0, Max = 100, Default = 65, Suffix = "%", Callback = function(Value) Library.NotificationVolume = Value / 100 end})
+                MenuSection:Dropdown({
+                    Name = "UI Click Sound",
+                    Flag = "UIClickSound",
+                    Items = { "Simple click", "None" },
+                    Default = "Simple click",
+                    Callback = function(Value)
+                        Library:SetUIClickSound(Value ~= "None" and "88442833509532" or nil)
+                    end
+                })
+
+                MenuSection:Slider({
+                    Name = "UI Click Volume",
+                    Flag = "UIClickVolume",
+                    Min = 0,
+                    Max = 100,
+                    Default = math.floor((Library.UIClickVolume or 0.65) * 100 + 0.5),
+                    Decimals = 0,
+                    Suffix = "%",
+                    Callback = function(Value)
+                        Library:SetUIClickVolume(Value / 100)
+                    end
+                })
 
                 MenuSection:Divider()
 
