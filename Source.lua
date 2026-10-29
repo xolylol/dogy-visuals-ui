@@ -39,7 +39,7 @@ local GuiInset = GuiService:GetGuiInset().Y
 local Mouse = cloneref(LocalPlayer:GetMouse())
 
 local Library = {
-    BuildVersion = "2026.10.29-v22-mimisense-glow",
+    BuildVersion = "2026.10.29-v23-mimisense-tabbox-png-glow",
     Flags = { },
 
     MenuKeybind = tostring(Enum.KeyCode.X),
@@ -47,7 +47,7 @@ local Library = {
     Directory = "mimisense",
 
     -- Ссылка на твой Icons.lua (raw) в репозитории
-    IconsUrl = "https://raw.githubusercontent.com/xolylol/dogy-visuals-ui/refs/heads/main/Icons.lua",
+    IconsUrl = "https://raw.githubusercontent.com/xolylol/mimisense/main/Icons.lua",
     Folders = {
         Assets = "/Assets",
         Configs = "/Configs",
@@ -5211,7 +5211,7 @@ Library.Watermark = function(Self, Params)
                 FooterText.BackgroundTransparency = 1
                 FooterText.BorderSizePixel = 0
                 
-                FooterText.Text = tostring(Library.CustomVersionLabel or "mimisense · v22")
+                FooterText.Text = tostring(Library.CustomVersionLabel or "mimisense · v23")
                 
                 FooterText.TextColor3 = Library.Theme["Inactive Text"]
                 FooterText.FontFace = Library.Font
@@ -6120,10 +6120,18 @@ Library.LoadIcons = function(Self)
         return Library.IconModule or nil
     end
 
-    local Success, Module = pcall(function()
-        return loadstring(game:HttpGet(Library.IconsUrl))()
-    end)
-
+    local Success, Module = false, nil
+    for _, Url in {
+        Library.IconsUrl,
+        "https://raw.githubusercontent.com/xolylol/dogy-visuals-ui/main/Icons.lua"
+    } do
+        Success, Module = pcall(function()
+            return loadstring(game:HttpGet(Url))()
+        end)
+        if Success and type(Module) == "table" and type(Module.Get) == "function" then
+            break
+        end
+    end
     if Success and type(Module) == "table" and type(Module.Get) == "function" then
         Library.IconModule = Module
     else
@@ -6454,6 +6462,135 @@ Library.Section = function(Self, Params)
 
     return setmetatable(Section, Library)
 end
+
+        -- ---------- Tabbox: switchable pages INSIDE one Section ----------
+        -- Usage:
+        --   local Box = Section:Tabbox({Tabs = {"Tab 1", "Tab 2"}})
+        --   Box:Tab("Tab 1"):Toggle({...})
+        --   Box:Tab("Tab 2"):Slider({...})
+        -- Tab objects are regular Section-compatible containers; all normal
+        -- components work without a second top-level Window:Page.
+        Library.Tabbox = function(Self, Params)
+            Params = Params or {}
+            local HostSection = Self
+            local RawTabs = Params.Tabs or Params.tabs or {}
+            local Box = {Window = Self.Window, Page = Self.Page,
+                Section = Self, Tabs = {}, Order = {}, Active = nil, Items = {}}
+            local Content = HostSection.Items["Content"].Instance
+
+            local Holder = Library:Create("Frame", {
+                Name = "mimisense-tabbox", Parent = Content,
+                BackgroundColor3 = Library.Theme["Background"],
+                BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, 0),
+                AutomaticSize = Enum.AutomaticSize.Y,
+                ClipsDescendants = false
+            }):AddToTheme({BackgroundColor3 = "Background"})
+            Library:Create("UICorner", {Parent = Holder.Instance, CornerRadius = UDim.new(0, 6)})
+            Library:Create("UIStroke", {Parent = Holder.Instance,
+                Color = Library.Theme["Outline"], Thickness = 1}):AddToTheme({Color = "Outline"})
+            Library:Create("UIListLayout", {Parent = Holder.Instance,
+                SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 0)})
+
+            local Navigation = Library:Create("Frame", {
+                Name = "TabNavigation", Parent = Holder.Instance, LayoutOrder = 1,
+                Size = UDim2.new(1, 0, 0, 34), BorderSizePixel = 0,
+                BackgroundColor3 = Library.Theme["Inline"]
+            }):AddToTheme({BackgroundColor3 = "Inline"})
+            Library:Create("UICorner", {Parent = Navigation.Instance,
+                CornerRadius = UDim.new(0, 6)})
+            local NavLayout = Library:Create("UIListLayout", {
+                Parent = Navigation.Instance,
+                FillDirection = Enum.FillDirection.Horizontal,
+                SortOrder = Enum.SortOrder.LayoutOrder,
+                Padding = UDim.new(0, 0)
+            })
+
+            local BodyHolder = Library:Create("Frame", {
+                Name = "TabContent", Parent = Holder.Instance, LayoutOrder = 2,
+                BackgroundTransparency = 1, BorderSizePixel = 0,
+                Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y
+            })
+            Library:Create("UIListLayout", {Parent = BodyHolder.Instance,
+                SortOrder = Enum.SortOrder.LayoutOrder})
+
+            local function UpdateNavigation()
+                local Count = math.max(#Box.Order, 1)
+                for Index, Tab in Box.Order do
+                    local Width = 1 / Count
+                    Tab.Button.Instance.Size = UDim2.new(Width, 0, 1, 0)
+                    Tab.Button.Instance.LayoutOrder = Index
+                    Tab.Content.Instance.Visible = Tab == Box.Active
+                    -- No fixed min height: active tab expands the Section.
+                    local Selected = Tab == Box.Active
+                    Tab.Button.Instance.BackgroundColor3 = Library.Theme[Selected and "Tab" or "Inline"]
+                    Tab.Button.Instance.TextColor3 = Library.Theme[Selected and "Text" or "Inactive Text"]
+                    Tab.Button:ChangeItemTheme({BackgroundColor3 = Selected and "Tab" or "Inline",
+                        TextColor3 = Selected and "Text" or "Inactive Text"})
+                end
+            end
+
+            function Box:SetTab(Target)
+                local Tab = type(Target) == "table" and Target or self.Tabs[tostring(Target)]
+                if not Tab or Tab == self.Active then return Tab end
+                self.Active = Tab
+                UpdateNavigation()
+                return Tab
+            end
+
+            function Box:Tab(Spec)
+                local Name = type(Spec) == "table" and (Spec.Name or Spec.name) or Spec
+                Name = tostring(Name or ("Tab " .. (#self.Order + 1)))
+                if self.Tabs[Name] then return self.Tabs[Name] end
+                local Button = Library:Create("TextButton", {
+                    Name = "TabButton", Parent = Navigation.Instance, Text = Name,
+                    FontFace = Library.Font, TextSize = Library.FontSize,
+                    BackgroundColor3 = Library.Theme["Inline"],
+                    TextColor3 = Library.Theme["Inactive Text"],
+                    AutoButtonColor = false, BorderSizePixel = 0,
+                    Size = UDim2.new(1, 0, 1, 0)
+                }):AddToTheme({BackgroundColor3 = "Inline", TextColor3 = "Inactive Text"})
+
+                local Body = Library:Create("Frame", {
+                    Name = "TabBody", Parent = BodyHolder.Instance,
+                    BackgroundTransparency = 1, BorderSizePixel = 0,
+                    Size = UDim2.new(1, 0, 0, 0),
+                    AutomaticSize = Enum.AutomaticSize.Y,
+                    Visible = false
+                })
+                Library:Create("UIPadding", {
+                    Parent = Body.Instance,
+                    PaddingTop = UDim.new(0, 9), PaddingBottom = UDim.new(0, 9),
+                    PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10)
+                })
+                Library:Create("UIListLayout", {Parent = Body.Instance,
+                    SortOrder = Enum.SortOrder.LayoutOrder,
+                    Padding = UDim.new(0, 6)})
+
+                -- Proxy shares all existing Section element constructors.
+                local Tab = setmetatable({Name = Name,
+                    Side = HostSection.Side, Window = HostSection.Window,
+                    Page = HostSection.Page, IsSettings = HostSection.IsSettings,
+                    Items = {Content = Body}, Elements = HostSection.Elements,
+                    ParentSection = HostSection, Button = Button, Content = Body
+                }, Library)
+                self.Tabs[Name] = Tab
+                table.insert(self.Order, Tab)
+                Button:Connect("MouseButton1Down", function()
+                    if self.Active ~= Tab then self:SetTab(Name) end
+                end)
+                if not self.Active then self.Active = Tab end
+                UpdateNavigation()
+                return Tab
+            end
+            Box.AddTab = Box.Tab
+            Box.Select = Box.SetTab
+            Box.Items = {Holder = Holder, Header = Navigation, Content = BodyHolder}
+            for _, Entry in RawTabs do
+                Box:Tab(Entry)
+            end
+            return Box
+        end
+        Library.TabBox = Library.Tabbox
 
         -- Toggle:Options({ Name = "Options", Width = 250, Icon = "settings" })  /  Label:Options({ ... })
         -- Gear next to the element, opens a window that works like a Section:
@@ -10872,155 +11009,130 @@ end
             end
         end
 
-        -- ---------- mimisense outer-only glow ----------
-        -- No ImageLabel / shadow asset: an image with a filled center caused
-        -- large tinted rectangles behind the main window and overlays.
-        -- These thin, transparent concentric STROKES draw only outside each root.
-        Library.MenuGlowStrength = Library.MenuGlowStrength or 35
+        -- ---------- mimisense PNG glow ----------
+        -- Same layering principle as Obsidian: one transparent PNG OUTSIDE each
+        -- overlay's bounds, behind its content. Never construct rings/strokes.
+        -- The user's image is downloaded once to the existing Assets directory.
         Library.MenuGlowEnabled = Library.MenuGlowEnabled ~= false
+        Library.GlowImageUrl = "https://raw.githubusercontent.com/xolylol/mimisense/main/assets/Glow.png"
+        Library.GlowFallbackAsset = "rbxassetid://88645182616510"
         Library.OuterGlowMap = setmetatable({}, {__mode = "k"})
+        local CachedGlowAsset = nil
 
-        -- {distance outside root, stroke thickness, relative intensity}
-        -- Rings overlap with decreasing alpha to approximate a soft halo.
-        local GlowRings = {
-            {2, 3, 0.21},
-            {5, 5, 0.16},
-            {9, 6, 0.12},
-            {14, 7, 0.09},
-            {20, 8, 0.065},
-            {27, 9, 0.04},
-            {35, 11, 0.025}
-        }
+        local function ResolveGlowAsset()
+            if CachedGlowAsset then return CachedGlowAsset end
+            CachedGlowAsset = Library.GlowFallbackAsset
+            if type(getcustomasset) ~= "function" then return CachedGlowAsset end
 
-        local function GlowVisible(Object)
-            local Parent = Object
-            while Parent and Parent ~= Library.Holder.Instance do
-                if Parent:IsA("GuiObject") and not Parent.Visible then
-                    return false
-                end
-                Parent = Parent.Parent
+            local AssetPath = Library.Directory .. Library.Folders.Assets .. "/Glow.png"
+            local Exists = false
+            if type(isfile) == "function" then
+                local Ok, Result = pcall(isfile, AssetPath)
+                Exists = Ok and Result == true
             end
-            return Parent == Library.Holder.Instance
+            if not Exists and type(writefile) == "function" then
+                local Ok, Data = pcall(function()
+                    return game:HttpGet(Library.GlowImageUrl)
+                end)
+                if Ok and type(Data) == "string" and Data:sub(1, 8) == "\137PNG\r\n\026\n" then
+                    local Saved = pcall(writefile, AssetPath, Data)
+                    Exists = Saved
+                end
+            end
+            if Exists then
+                local Ok, Asset = pcall(getcustomasset, AssetPath)
+                if Ok and type(Asset) == "string" and Asset ~= "" then
+                    CachedGlowAsset = Asset
+                end
+            end
+            return CachedGlowAsset
         end
 
-        local function MakeGlowRing(Root, RingSpec)
-            local Frame = Instance.new("Frame")
-            Frame.Name = "MimisenseOuterGlowRing"
-            Frame.BackgroundTransparency = 1
-            Frame.BorderSizePixel = 0
-            Frame.Active = false
-            Frame.ZIndex = 0
-            Frame.Visible = false
-            -- Keep the rings in the same ScreenGui as the overlay, but behind
-            -- the real GUI. Never parent them inside a scrolling section.
-            Frame.Parent = Library.Holder.Instance
-
-            local Corner = Instance.new("UICorner")
-            Corner.Name = "GlowCorner"
-            Corner.CornerRadius = UDim.new(0, 10 + RingSpec[1])
-            Corner.Parent = Frame
-
-            local Stroke = Instance.new("UIStroke")
-            Stroke.Name = "GlowOnlyOutline"
-            Stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-            Stroke.Thickness = RingSpec[2]
-            Stroke.Transparency = 1
-            Stroke.Color = Library.Theme["Accent"]
-            Stroke.Parent = Frame
-
-            return {Frame = Frame, Stroke = Stroke, Corner = Corner, Spec = RingSpec}
+        local function IsGlowTargetVisible(Object)
+            local Node = Object
+            while Node and Node ~= Library.Holder.Instance do
+                if Node:IsA("GuiObject") and not Node.Visible then return false end
+                Node = Node.Parent
+            end
+            return Node == Library.Holder.Instance
         end
 
-        Library.SetMenuGlow = function(Self, Strength, Enabled)
-            Strength = math.clamp(tonumber(Strength) or 35, 0, 100)
-            Library.MenuGlowStrength = Strength
+        Library.SetMenuGlow = function(Self, _Strength, Enabled)
             Library.MenuGlowEnabled = Enabled ~= false
-
             local Window = Library.ActiveWindow
             if not Window or not Window.Items or not Library.Holder then return end
 
             local Targets = {}
-            local function Add(Item, Weight)
-                local Object = Item and Item.Instance
-                if Object and Object:IsA("GuiObject") and Object.Parent then
-                    table.insert(Targets, {Object = Object, Weight = Weight or 1})
+            local function Add(Item)
+                local Root = Item and Item.Instance
+                if Root and Root:IsA("GuiObject") and Root.Parent then
+                    table.insert(Targets, Root)
                 end
             end
-            Add(Window.Items.MainFrame, 1)
+            Add(Window.Items.MainFrame)
             local Watermark = rawget(Window, "Watermark")
-            local WatermarkItems = type(Watermark) == "table" and Watermark.Items
-            Add(WatermarkItems and WatermarkItems.Watermark, 0.85)
+            Add(type(Watermark) == "table" and Watermark.Items and Watermark.Items.Watermark)
             local KeybindList = rawget(Window, "KeybindList")
-            local KeyItems = type(KeybindList) == "table" and KeybindList.Items
-            Add(KeyItems and KeyItems.KeybindList, 0.85)
+            Add(type(KeybindList) == "table" and KeybindList.Items and KeybindList.Items.KeybindList)
             local ESPPreview = rawget(Window, "ESPPreview")
-            local ESPItems = type(ESPPreview) == "table" and ESPPreview.Items
-            Add(ESPItems and ESPItems.ESPPreview, 0.85)
+            Add(type(ESPPreview) == "table" and ESPPreview.Items and ESPPreview.Items.ESPPreview)
 
-            for _, Target in Targets do
-                local Object = Target.Object
-                -- Also clear incompatible old glow objects if the library is
-                -- reconfigured without fully rebuilding the UI.
-                for _, OldName in {"DogyAccentGlowWide", "DogyAccentGlowSoft", "DogyAccentGlow"} do
-                    local Old = Object:FindFirstChild(OldName)
-                    if Old then Old:Destroy() end
+            -- Clean up stale v21/v22 implementations if the UI is reused.
+            for _, Old in Library.Holder.Instance:GetChildren() do
+                if Old.Name == "MimisenseOuterGlowRing" or Old.Name == "DogySoftOuterGlow" then
+                    Old:Destroy()
                 end
-                local OldImage = Library.Holder.Instance:FindFirstChild("DogySoftOuterGlow")
-                while OldImage do
-                    OldImage:Destroy()
-                    OldImage = Library.Holder.Instance:FindFirstChild("DogySoftOuterGlow")
-                end
+            end
 
-                local Info = Library.OuterGlowMap[Object]
-                if not Info or not Info.Rings[1].Frame.Parent then
-                    Info = {Rings = {}, Weight = Target.Weight}
-                    for _, RingSpec in GlowRings do
-                        table.insert(Info.Rings, MakeGlowRing(Object, RingSpec))
-                    end
-                    Library.OuterGlowMap[Object] = Info
+            for _, Root in Targets do
+                local Info = Library.OuterGlowMap[Root]
+                if not Info or not Info.Image.Parent then
+                    local Image = Instance.new("ImageLabel")
+                    Image.Name = "MimisensePNGGlow"
+                    Image.BackgroundTransparency = 1
+                    Image.BorderSizePixel = 0
+                    Image.Active = false
+                    Image.Selectable = false
+                    Image.ZIndex = 0
+                    Image.ScaleType = Enum.ScaleType.Stretch
+                    Image.Image = ResolveGlowAsset()
+                    Image.ImageColor3 = Library.Theme["Accent"]
+                    Image.ImageTransparency = 0.18
+                    Image.Visible = false
+                    Image.Parent = Library.Holder.Instance
 
-                    local function UpdatePosition()
-                        if not Object.Parent then
-                            for _, Ring in Info.Rings do Ring.Frame.Visible = false end
+                    Info = {Image = Image}
+                    Library.OuterGlowMap[Root] = Info
+                    local function Update()
+                        if not Root.Parent or not Image.Parent then
+                            Image.Visible = false
                             return
                         end
-                        local Position = Object.AbsolutePosition
-                        local Size = Object.AbsoluteSize
-                        local Visible = Library.MenuGlowEnabled and Library.MenuGlowStrength > 0
-                            and GlowVisible(Object) and Size.X > 0 and Size.Y > 0
-                        -- UICorner tracks each root's actual rounded shape.
-                        local RootCorner = Object:FindFirstChildOfClass("UICorner")
-                        local BaseRadius = RootCorner and RootCorner.CornerRadius.Offset or 9
-                        for _, Ring in Info.Rings do
-                            local Margin = Ring.Spec[1]
-                            Ring.Frame.Position = UDim2.fromOffset(Position.X - Margin, Position.Y - Margin)
-                            Ring.Frame.Size = UDim2.fromOffset(Size.X + Margin * 2, Size.Y + Margin * 2)
-                            Ring.Corner.CornerRadius = UDim.new(0, math.max(4, BaseRadius + Margin))
-                            Ring.Frame.Visible = Visible
-                        end
+                        local P, S = Root.AbsolutePosition, Root.AbsoluteSize
+                        Image.Position = UDim2.fromOffset(math.floor(P.X - 20), math.floor(P.Y - 20))
+                        Image.Size = UDim2.fromOffset(math.ceil(S.X + 40), math.ceil(S.Y + 40))
+                        Image.Visible = Library.MenuGlowEnabled and IsGlowTargetVisible(Root)
+                            and S.X > 0 and S.Y > 0
                     end
-                    Info.UpdatePosition = UpdatePosition
-                    Library:Connect(Object:GetPropertyChangedSignal("AbsolutePosition"), UpdatePosition)
-                    Library:Connect(Object:GetPropertyChangedSignal("AbsoluteSize"), UpdatePosition)
-                    Library:Connect(Object:GetPropertyChangedSignal("Visible"), UpdatePosition)
-                    local Parent = Object.Parent
+                    Info.Update = Update
+                    Library:Connect(Root:GetPropertyChangedSignal("AbsolutePosition"), Update)
+                    Library:Connect(Root:GetPropertyChangedSignal("AbsoluteSize"), Update)
+                    Library:Connect(Root:GetPropertyChangedSignal("Visible"), Update)
+                    local Parent = Root.Parent
                     while Parent and Parent ~= Library.Holder.Instance do
                         if Parent:IsA("GuiObject") then
-                            Library:Connect(Parent:GetPropertyChangedSignal("Visible"), UpdatePosition)
+                            Library:Connect(Parent:GetPropertyChangedSignal("Visible"), Update)
                         end
                         Parent = Parent.Parent
                     end
+                    Library:Connect(Root.Destroying, function()
+                        Image:Destroy()
+                        Library.OuterGlowMap[Root] = nil
+                    end)
                 end
-
-                Info.Weight = Target.Weight
-                -- Strength adjusts opacity, not the size of a giant image.
-                local Power = math.clamp(Strength / 35, 0, 2.35) * Info.Weight
-                for _, Ring in Info.Rings do
-                    local Opacity = math.clamp(Ring.Spec[3] * Power, 0, 0.75)
-                    Ring.Stroke.Transparency = 1 - Opacity
-                    Ring.Stroke.Color = Library.Theme["Accent"]
-                end
-                Info.UpdatePosition()
+                Info.Image.ImageColor3 = Library.Theme["Accent"]
+                Info.Image.Visible = Library.MenuGlowEnabled
+                Info.Update()
             end
         end
 
@@ -11882,14 +11994,10 @@ end
                     Min = 0, Max = 100, Default = 55, Suffix = "%",
                     Callback = function(Value) Library.NotificationVolume = Value / 100 end})
 
-                local GlowRow = Menu:Toggle({Name = "Glow", Flag = "UI/GlowEnabled",
+                Menu:Toggle({Name = "Glow", Flag = "UI/GlowEnabled",
                     Default = Library.MenuGlowEnabled ~= false,
-                    Callback = function(Value) Library:SetMenuGlow(Library.MenuGlowStrength or 35, Value) end})
-                local Glow = Panel(GlowRow, "Glow Options")
-                Glow:Slider({Name = "Strength", Flag = "UI/GlowStrength", Min = 0, Max = 100,
-                    Default = Library.MenuGlowStrength or 35, Suffix = "%",
-                    Callback = function(Value) Library:SetMenuGlow(Value, Library.MenuGlowEnabled ~= false) end})
-                Library:SetMenuGlow(Library.MenuGlowStrength or 35, Library.MenuGlowEnabled ~= false)
+                    Callback = function(Value) Library:SetMenuGlow(nil, Value) end})
+                Library:SetMenuGlow(nil, Library.MenuGlowEnabled ~= false)
 
                 Menu:Dropdown({Name = "UI Click Sound", Flag = "UIClickSound", Items = {"Simple click", "None"},
                     Default = "Simple click", Callback = function(Value)
