@@ -38,7 +38,7 @@ local GuiInset = GuiService:GetGuiInset().Y
 local Mouse = cloneref(LocalPlayer:GetMouse())
 
 local Library = {
-    BuildVersion = "2026.10.29-v16-watermark-inline-dropdown",
+    BuildVersion = "2026.10.29-v18-popup-input-fixes",
     Flags = { },
 
     MenuKeybind = tostring(Enum.KeyCode.X),
@@ -344,6 +344,7 @@ local Library = {
         -- interface settings live in ui_state.json, not in configs
         ["UI/SearchBar"] = true, ["UI/Scale"] = true, ["UI/Opacity"] = true, ["UI/Font"] = true,
         ["UI/NotifSide"] = true, ["UI/ThemeAnimation"] = true, ["UI/RememberUI"] = true,
+        ["UI/ScalePreset"] = true,
         ["UI/WatermarkFields"] = true, ["UI/KeybindListMode"] = true, ["UI/ImportString"] = true
     }
     Library.ThemeOrder = ThemeOrder
@@ -1341,8 +1342,23 @@ local Library = {
             return
         end
 
-        Library:Connect(Object.MouseEnter, OnHoverEnter)
-        Library:Connect(Object.MouseLeave, OnHoverLeave)
+        Library:Connect(Object.MouseEnter, function(...)
+            local Shield = Library.PopupShield and Library.PopupShield.Instance
+            if Shield and Shield.Visible then
+                local Allowed = false
+                for _, Data in Library.OpenFrames do
+                    if Data.Modal and Data.PopupInstance and Object:IsDescendantOf(Data.PopupInstance) then
+                        Allowed = true
+                        break
+                    end
+                end
+                if not Allowed then return end
+            end
+            if OnHoverEnter then OnHoverEnter(...) end
+        end)
+        Library:Connect(Object.MouseLeave, function(...)
+            if OnHoverLeave then OnHoverLeave(...) end
+        end)
     end
 
     Library.IsMouseOverItems = function(Self, Items)
@@ -1401,6 +1417,46 @@ local Library = {
         return false
     end
 
+    -- v18: shared modal hit shield. A popup must intercept input behind itself,
+    -- not just draw over other controls. This covers Options, Colorpicker and Keybind.
+    -- Embedded dropdown lists are intentionally NOT modal.
+    Library.PopupLayerOriginal = setmetatable({}, {__mode = "k"})
+    Library.PopupOrder = 0
+
+    Library.RefreshPopupLayer = function(Self)
+        local ModalFrames = {}
+        for Frame, Data in Library.OpenFrames do
+            if Frame.IsOpen and Data.Modal and Data.PopupInstance and Data.PopupInstance.Parent == Library.Holder.Instance then
+                table.insert(ModalFrames, {Frame = Frame, Data = Data})
+            end
+        end
+        table.sort(ModalFrames, function(A, B)
+            return (A.Data.PopupOrder or 0) < (B.Data.PopupOrder or 0)
+        end)
+        local Shield = Library.PopupShield and Library.PopupShield.Instance
+        if Shield then
+            if #ModalFrames > 0 and not Shield.Visible and Library.HideTooltip then
+                Library:HideTooltip()
+            end
+            Shield.Visible = #ModalFrames > 0
+        end
+        for Order, Entry in ModalFrames do
+            local Popup = Entry.Data.PopupInstance
+            local Base = 100 + (Order - 1) * 30
+            local function Front(Object)
+                if not Object:IsA("GuiObject") then return end
+                if Library.PopupLayerOriginal[Object] == nil then
+                    Library.PopupLayerOriginal[Object] = Object.ZIndex
+                end
+                -- Preserve the relative layer order of text, backgrounds, and arrows.
+                Object.ZIndex = Base + math.clamp(Library.PopupLayerOriginal[Object], 0, 25)
+            end
+            Front(Popup)
+            for _, Descendant in Popup:GetDescendants() do Front(Descendant) end
+        end
+    end
+
+
     Library.RegisterOpenFrame = function(Self, Frame, Data)
         local Owner = Data.Owner
 
@@ -1409,6 +1465,11 @@ local Library = {
         end
 
         Data.Owner = Owner
+        Data.Modal = Data.PopupInstance ~= nil and Data.PopupInstance.Parent == Library.Holder.Instance
+        if Data.Modal then
+            Library.PopupOrder += 1
+            Data.PopupOrder = Library.PopupOrder
+        end
 
         if Owner then
             Self:CloseOpenFramesExcept(Frame, Owner)
@@ -1418,10 +1479,12 @@ local Library = {
 
         Library.OpenFrames[Frame] = Data
         Library:EnsureOpenFramesConnection()
+        Library:RefreshPopupLayer()
     end
 
     Library.UnregisterOpenFrame = function(Self, Frame)
         Library.OpenFrames[Frame] = nil
+        Library:RefreshPopupLayer()
     end
 
     Library.FindOpenFrameOwner = function(Self, Instance)
@@ -1525,6 +1588,17 @@ local Library = {
         ResetOnSpawn = false
     })
 
+    Library.PopupShield = Library:Create("TextButton", {
+        Parent = Library.Holder.Instance, Name = "DogyPopupInputShield",
+        Size = UDim2.fromScale(1, 1), Position = UDim2.fromScale(0, 0),
+        BackgroundTransparency = 1, BorderSizePixel = 0,
+        Text = "", AutoButtonColor = false, Visible = false, ZIndex = 70
+    })
+    Library.PopupShield:Connect("MouseButton1Down", function()
+        Library:CloseOpenFramesExcept(nil)
+        Library:RefreshPopupLayer()
+    end)
+
     Library.UIClickSound = Instance.new("Sound")
     Library.UIClickSound.Name = "UIClickSound"
     Library.UIClickSound.SoundId = Library.UIClickSoundId
@@ -1590,23 +1664,19 @@ local Library = {
         ResetOnSpawn = false
     })
 
+    Library.NotificationStack = Library:Create("Frame", {
+        Name = "DogyNotificationStack", Parent = Library.NotifHolder.Instance,
+        BackgroundTransparency = 1, BorderSizePixel = 0,
+        AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 14 + GuiInset),
+        Size = UDim2.new(0, 290, 1, -28 - GuiInset), ClipsDescendants = false
+    })
     Library:Create("UIListLayout", {
-        Parent = Library.NotifHolder.Instance,
-        Name = "\0",
+        Parent = Library.NotificationStack.Instance, Name = "\0",
         FillDirection = Enum.FillDirection.Vertical,
         HorizontalAlignment = Enum.HorizontalAlignment.Right,
         VerticalAlignment = Enum.VerticalAlignment.Top,
         SortOrder = Enum.SortOrder.LayoutOrder,
         Padding = UDim.new(0, 10)
-    })
-
-    Library:Create("UIPadding", {
-        Parent = Library.NotifHolder.Instance,
-        Name = "\0",
-        PaddingTop = UDim.new(0, 14),
-        PaddingBottom = UDim.new(0, 14),
-        PaddingLeft = UDim.new(0, 14),
-        PaddingRight = UDim.new(0, 14)
     })
 
     Library.UnusedHolder = Library:Create("ScreenGui", {
@@ -2046,11 +2116,20 @@ local Library = {
                 Debounce = true
 
                 if Colorpicker.IsOpen then
-                    ColorpickerWindow.Position = UDim2.new(0, ColorpickerButton.AbsolutePosition.X, 0, ColorpickerButton.AbsolutePosition.Y + ColorpickerButton.AbsoluteSize.Y + GuiInset)
+                    local Screen = Library.Holder.Instance.AbsoluteSize
+                    local X = math.clamp(ColorpickerButton.AbsolutePosition.X, 8,
+                        math.max(8, Screen.X - ColorpickerWindow.AbsoluteSize.X - 8))
+                    local Height = math.max(300, ColorpickerWindow.AbsoluteSize.Y)
+                    local Y = ColorpickerButton.AbsolutePosition.Y + ColorpickerButton.AbsoluteSize.Y + 4
+                    if Y + Height > Screen.Y - 8 then
+                        Y = ColorpickerButton.AbsolutePosition.Y - Height - 4
+                    end
+                    Y = math.clamp(Y, 8, math.max(8, Screen.Y - Height - 8))
+                    ColorpickerWindow.Position = UDim2.fromOffset(X, Y - 6)
 
                     ColorpickerWindow.Parent = Library.Holder.Instance
                     ColorpickerWindow.Visible = true
-                    Items["ColorpickerWindow"]:Tween({Position = UDim2.new(0, ColorpickerButton.AbsolutePosition.X, 0, ColorpickerButton.AbsolutePosition.Y + ColorpickerButton.AbsoluteSize.Y + 10 + GuiInset)})
+                    Items["ColorpickerWindow"]:Tween({Position = UDim2.fromOffset(X, Y)})
 
                     Items["ColorpickerWindow"]:FadeDescendants(true, function()
                         Debounce = false
@@ -2086,6 +2165,7 @@ local Library = {
                         Value.ZIndex = Colorpicker.IsOpen and Library.ZIndexOrder.ColorpickerWindow or 1
                     end
                 end
+                if Library.RefreshPopupLayer then Library:RefreshPopupLayer() end
             end
 
             Items["ColorpickerWindow"]:VisibleCheck()
@@ -2765,6 +2845,7 @@ end
                 Picking = false,
                 Ready = false,
                 PressedInputs = {},
+                DefaultKey = Data.Default,
 
                 Items = { },
             }
@@ -3046,6 +3127,7 @@ end
                 end
 
                 ApplyZIndex()
+                if Library.RefreshPopupLayer then Library:RefreshPopupLayer() end
                 RefreshButton()
             end
 
@@ -3202,8 +3284,103 @@ end
                 end
             end
 
+            local function RequestKeyConflict(NewKey, Previous)
+                if Keybind.ConflictDialog then Keybind.ConflictDialog:Close() end
+                local Holder = Library.Holder.Instance
+                local Dialog = {IsOpen = true}
+                local Root = Instance.new("Frame")
+                Root.Name = "DogyKeybindConflict"
+                Root.Size = UDim2.fromOffset(280, 114)
+                Root.Position = UDim2.fromOffset(
+                    math.clamp(KeyButton.AbsolutePosition.X - 95, 8, math.max(8, Holder.AbsoluteSize.X - 288)),
+                    math.clamp(KeyButton.AbsolutePosition.Y + 24, 8, math.max(8, Holder.AbsoluteSize.Y - 122)))
+                Root.BackgroundColor3 = Library.Theme["Inline"]
+                Root.BorderSizePixel = 0
+                Root.ZIndex = 115
+                Root.Parent = Holder
+                local Corner = Instance.new("UICorner")
+                Corner.CornerRadius = UDim.new(0, 7)
+                Corner.Parent = Root
+                local Stroke = Instance.new("UIStroke")
+                Stroke.Color = Library.Theme["Accent"]
+                Stroke.Thickness = 1
+                Stroke.Parent = Root
+                Library.AddToTheme({Instance=Root},{BackgroundColor3="Inline"})
+                Library.AddToTheme({Instance=Stroke},{Color="Accent"})
+                local function Text(Y, Height, Message, Color)
+                    local Label = Instance.new("TextLabel")
+                    Label.BackgroundTransparency = 1
+                    Label.Position = UDim2.fromOffset(12,Y)
+                    Label.Size = UDim2.new(1,-24,0,Height)
+                    Label.FontFace = Library.Font
+                    Label.TextSize = Library.FontSize
+                    Label.TextColor3 = Library.Theme[Color]
+                    Label.TextWrapped = true
+                    Label.TextXAlignment = Enum.TextXAlignment.Left
+                    Label.Text = Message
+                    Label.ZIndex = 116
+                    Label.Parent = Root
+                    Library.AddToTheme({Instance=Label},{TextColor3=Color})
+                end
+                Text(9,20,"Keybind conflict", "Text")
+                Text(29,38, NewKey.Name .. " is used by " .. tostring(Previous.Name) .. ". Replace it?", "Inactive Text")
+                local function Action(X, Name, Callback)
+                    local Button = Instance.new("TextButton")
+                    Button.Position = UDim2.new(X, X == 0.5 and -6 or 12, 1, -38)
+                    Button.Size = UDim2.new(0.5,-18,0,26)
+                    Button.BackgroundColor3 = Library.Theme["Background"]
+                    Button.TextColor3 = Library.Theme["Text"]
+                    Button.FontFace = Library.Font
+                    Button.TextSize = Library.FontSize
+                    Button.Text = Name
+                    Button.BorderSizePixel = 0
+                    Button.ZIndex = 116
+                    Button.AutoButtonColor = false
+                    Button.Parent = Root
+                    local Round = Instance.new("UICorner")
+                    Round.CornerRadius = UDim.new(0,4)
+                    Round.Parent = Button
+                    Library.AddToTheme({Instance=Button},{BackgroundColor3="Background",TextColor3="Text"})
+                    Button.MouseButton1Click:Connect(Callback)
+                end
+                function Dialog:SetOpen(Enabled)
+                    if not Enabled then self:Close() end
+                end
+                function Dialog:Close()
+                    if not self.IsOpen then return end
+                    self.IsOpen = false
+                    Library:UnregisterOpenFrame(self)
+                    if Root.Parent then Root:Destroy() end
+                    if Keybind.ConflictDialog == self then Keybind.ConflictDialog = nil end
+                end
+                Action(0, "Replace", function()
+                    Dialog:Close()
+                    Previous:Clear()
+                    Keybind._ReplacingConflict = true
+                    Keybind:Set(NewKey)
+                    Keybind._ReplacingConflict = false
+                end)
+                Action(0.5, "Cancel", function() Dialog:Close() end)
+                Keybind.ConflictDialog = Dialog
+                Library:RegisterOpenFrame(Dialog, {
+                    AnchorInstance = KeyButton,
+                    PopupInstance = Root,
+                    HoverItems = {{Instance = Root}}
+                })
+                Library:RefreshPopupLayer()
+            end
+
             function Keybind:Set(Key)
                 if typeof(Key) == "EnumItem" then
+                    if Keybind.Ready and not Keybind._ReplacingConflict then
+                        for _, Other in Library.KeybindRegistry or {} do
+                            if Other ~= Keybind and Other.Ready and Other.Key == tostring(Key) then
+                                RequestKeyConflict(Key, Other)
+                                Finish()
+                                return
+                            end
+                        end
+                    end
                     -- every key can be bound, including Backspace / Delete (use "Remove" in the menu to unbind)
                     if Key == Enum.KeyCode.Unknown then
                         KeyButton.Text = Keybind.Value
@@ -3486,6 +3663,8 @@ end
             end
 
             Keybind.Ready = true
+            Library.KeybindRegistry = Library.KeybindRegistry or {}
+            table.insert(Library.KeybindRegistry, Keybind)
 
             SetFlags[Keybind.Flag] = function(Value)
                 Keybind:Set(Value)
@@ -3621,15 +3800,15 @@ Library.Watermark = function(Self, Params)
                 Items["Logo"] = Library:Create("ImageLabel", {
                     Name = "\0",
                     Parent = Items["Main"].Instance,
-                    ImageColor3 = Library.Theme["Accent"],
+                    ImageColor3 = Color3.new(1, 1, 1),
                     ScaleType = Enum.ScaleType.Fit,
                     AnchorPoint = Vector2.new(0, 0.5),
-                    Image = Watermark.Logo,
+                    Image = Library:ResolveLogo(Watermark.Logo),
                     BackgroundTransparency = 1,
                     Position = UDim2.new(0, 0, 0.5, 0),
                     Size = UDim2.new(0, 30, 0, 30),
                     BorderSizePixel = 0
-                }):AddToTheme({ImageColor3 = 'Accent'})
+                })
 
                 Library:Create("Frame", {
                     Name = "\0",
@@ -4323,7 +4502,7 @@ Library.Watermark = function(Self, Params)
 
             Items["Holder"] = Library:Create("Frame", {
                 Name = "\0",
-                Parent = Library.NotifHolder.Instance,
+                Parent = Library.NotificationStack.Instance,
                 BackgroundTransparency = 1,
                 BorderSizePixel = 0,
                 Size = UDim2.new(0, Width, 0, 0),
@@ -4921,6 +5100,43 @@ Library.Watermark = function(Self, Params)
             return ESPPreview
         end
 
+        Library.ResolveLogo = function(Self, Value)
+            local Logo = tostring(Value or "")
+            if Logo == "" then return "" end
+            if Logo:match("^rbxassetid://") or Logo:match("^rbxasset://") then return Logo end
+            if Logo:match("^%d+$") then return "rbxassetid://" .. Logo end
+            if Logo:match("^https?://") then
+                -- A Roblox ImageLabel does not render arbitrary GitHub URLs directly.
+                -- Download PNG once and convert to a local asset when supported.
+                Library.LogoCache = Library.LogoCache or {}
+                if Library.LogoCache[Logo] then return Library.LogoCache[Logo] end
+                local Ok, Result = pcall(function()
+                    if not (writefile and getcustomasset) then return "" end
+                    local FetchUrl = Logo
+                    local Repo, Branch, Asset = Logo:match("^https?://github%.com/([^/]+/[^/]+)/blob/([^/]+)/(.+)$")
+                    if Repo and Branch and Asset then
+                        FetchUrl = "https://raw.githubusercontent.com/" .. Repo .. "/" .. Branch .. "/" .. Asset
+                    end
+                    local Hash = 0
+                    for Index = 1, #FetchUrl do
+                        Hash = (Hash * 33 + string.byte(FetchUrl, Index)) % 2147483647
+                    end
+                    local File = Library.Directory .. "/Assets/brand_logo_" .. tostring(Hash) .. ".png"
+                    -- Cache by URL, use different files per image.
+                    local Data = game:HttpGet(FetchUrl)
+                    writefile(File, Data)
+                    return getcustomasset(File)
+                end)
+                if Ok and Result ~= "" then
+                    Library.LogoCache[Logo] = Result
+                    return Result
+                end
+                warn("[Dogy] Could not load remote logo: " .. Logo)
+                return ""
+            end
+            return Logo
+        end
+
         Library.Window = function(Self, Params)
             Params = Params or { }
 
@@ -4987,16 +5203,16 @@ Library.Watermark = function(Self, Params)
                 Items["Logo"] = Library:Create("ImageLabel", {
                     Name = "\0",
                     Parent = Items["Top"].Instance,
-                    ImageColor3 = Library.Theme["Accent"],
+                    ImageColor3 = Color3.new(1, 1, 1),
                     ScaleType = Enum.ScaleType.Fit,
                     AnchorPoint = Vector2.new(0, 0.5),
-                    Image = Window.Logo,
+                    Image = Library:ResolveLogo(Window.Logo),
                     BackgroundTransparency = 1,
                     Position = UDim2.new(0, 12, 0.5, 0),
                     Size = UDim2.new(0, 30, 0, 30),
                     BorderSizePixel = 0,
                     BackgroundColor3 = Library.Theme["Text"]
-                }):AddToTheme({ImageColor3 = 'Accent'})
+                })
 
                 Items["Title"] = Library:Create("TextLabel", {
                     Name = "\0",
@@ -5141,8 +5357,8 @@ Library.Watermark = function(Self, Params)
                 ResizeGrip.InputBegan:Connect(function(Input)
                     if Input.UserInputType == Enum.UserInputType.MouseButton1 or Input.UserInputType == Enum.UserInputType.Touch then
                         GripDragging = true
-                        GripStartMouse = UserInputService:GetMouseLocation()
-                        GripStartSize = Items["MainFrame"].Instance.AbsoluteSize
+                        GripStartMouse = Input.Position
+                        GripStartSize = Items["MainFrame"].Instance.Size
                         Input.Changed:Connect(function()
                             if Input.UserInputState == Enum.UserInputState.End then GripDragging = false end
                         end)
@@ -5155,10 +5371,10 @@ Library.Watermark = function(Self, Params)
                     local View = Library.Holder.Instance.AbsoluteSize
                     local ScaleObject = Frame:FindFirstChild("UserScale")
                     local Scale = ScaleObject and ScaleObject.Scale or 1
-                    local Delta = (UserInputService:GetMouseLocation() - GripStartMouse) / Scale
-                    local Width = math.clamp(GripStartSize.X + Delta.X, 420, math.max(420, View.X / Scale + 250))
-                    local Height = math.clamp(GripStartSize.Y + Delta.Y, 360, math.max(360, View.Y / Scale + 250))
-                    Frame.Size = UDim2.fromOffset(Width, Height)
+                    local Delta = (Input.Position - GripStartMouse) / Scale
+                    local Width = math.clamp(GripStartSize.X.Offset + Delta.X, 420, math.max(420, View.X / Scale + 250))
+                    local Height = math.clamp(GripStartSize.Y.Offset + Delta.Y, 360, math.max(360, View.Y / Scale + 250))
+                    Frame.Size = UDim2.fromOffset(math.floor(Width + 0.5), math.floor(Height + 0.5))
                 end)
             end
 
@@ -6645,6 +6861,7 @@ end
                         AnchorInstance = GearButton,
                         PopupInstance = PopupWindow,
                     })
+                    Library:RefreshPopupLayer()
                 else
                     StopFollow()
 
@@ -6670,6 +6887,7 @@ end
                     Value.ZIndex = Options.IsOpen and WindowZIndex or 1
                 end
 
+                if Library.RefreshPopupLayer then Library:RefreshPopupLayer() end
                 UpdateGear()
             end
 
@@ -8247,6 +8465,25 @@ end
                         TweenInfo.new(0.19, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
                         {Size = UDim2.new(1, 0, 0, 54 + OpenHeight)})
                     DropdownTween:Play()
+                    -- v18: keep the expanded inline list visible above the
+                    -- footer. Scroll its nearest ScrollingFrame into view,
+                    -- rather than drawing the list over other controls.
+                    task.delay(0.21, function()
+                        if not Dropdown.IsOpen or not DropdownFrame.Parent then return end
+                        local Scroll = DropdownFrame.Parent
+                        while Scroll and not Scroll:IsA("ScrollingFrame") do
+                            Scroll = Scroll.Parent
+                        end
+                        if not Scroll or not Scroll.Parent then return end
+                        local Bottom = DropdownFrame.AbsolutePosition.Y + DropdownFrame.AbsoluteSize.Y
+                        local ViewBottom = Scroll.AbsolutePosition.Y + Scroll.AbsoluteSize.Y - 8
+                        if Bottom > ViewBottom then
+                            local Extra = Bottom - ViewBottom
+                            local MaxY = math.max(0, Scroll.AbsoluteCanvasSize.Y - Scroll.AbsoluteSize.Y)
+                            Scroll.CanvasPosition = Vector2.new(Scroll.CanvasPosition.X,
+                                math.clamp(Scroll.CanvasPosition.Y + Extra, 0, MaxY))
+                        end
+                    end)
                 else
                     -- Close before collapsing, so rows never cover the next
                     -- element during the animation.
@@ -8261,9 +8498,21 @@ end
                 end
                 -- No global ZIndex override: an embedded list must not cover
                 -- unrelated popups, footer, other sections or color pickers.
-                OptionHolder.ZIndex = 8
-                for _, Object in OptionHolder:GetDescendants() do
-                    if Object:IsA("GuiObject") then Object.ZIndex = 9 end
+                if Library.RefreshPopupLayer then Library:RefreshPopupLayer() end
+                -- An embedded dropdown inherits its parent's modal popup layer.
+                -- Do not push it behind the input shield.
+                local InModal = false
+                for _, Data in Library.OpenFrames do
+                    if Data.Modal and Data.PopupInstance and DropdownFrame:IsDescendantOf(Data.PopupInstance) then
+                        InModal = true
+                        break
+                    end
+                end
+                if not InModal then
+                    OptionHolder.ZIndex = 8
+                    for _, Object in OptionHolder:GetDescendants() do
+                        if Object:IsA("GuiObject") then Object.ZIndex = 9 end
+                    end
                 end
             end
 
@@ -9566,6 +9815,17 @@ end
 
         local BindTooltip = function(HoverInstance, GetText)
             HoverInstance.MouseEnter:Connect(function()
+                if Library.PopupShield and Library.PopupShield.Instance.Visible then
+                    local InsidePopup = false
+                    for _, FrameData in Library.OpenFrames do
+                        if FrameData.Modal and FrameData.PopupInstance
+                            and HoverInstance:IsDescendantOf(FrameData.PopupInstance) then
+                            InsidePopup = true
+                            break
+                        end
+                    end
+                    if not InsidePopup then return end
+                end
                 Tooltip.Token += 1
                 local Token = Tooltip.Token
 
@@ -10183,6 +10443,8 @@ end
 
             Section.Elements = Section.Elements or { }
             table.insert(Section.Elements, Element)
+            Library.AllResettableElements = Library.AllResettableElements or {}
+            table.insert(Library.AllResettableElements, Element)
 
             -- composite visibility: user + search + dependency
             Element.HiddenBy = { User = false, Search = false, Depend = false }
@@ -10360,7 +10622,7 @@ end
                     local Default = Data.Default
                     local DefaultAlpha = Data.Alpha
 
-                    table.insert(Section.Elements, {
+                    local ResetEntry = {
                         Kind = "Colorpicker",
                         Name = "",
                         Searchable = false,
@@ -10370,7 +10632,10 @@ end
                         end,
                         SetSearchHidden = function() end,
                         HiddenBy = { }
-                    })
+                    }
+                    table.insert(Section.Elements, ResetEntry)
+                    Library.AllResettableElements = Library.AllResettableElements or {}
+                    table.insert(Library.AllResettableElements, ResetEntry)
                 end
 
                 return Picker, PickerItems
@@ -10554,23 +10819,18 @@ end
 
             Library.NotificationSide = Side
 
-            local Holder = Library.NotifHolder and Library.NotifHolder.Instance
-
-            if not Holder then
-                return
+            local Stack = Library.NotificationStack and Library.NotificationStack.Instance
+            if not Stack then return end
+            if Side == "Left" then
+                Stack.AnchorPoint = Vector2.new(0, 0)
+                Stack.Position = UDim2.new(0, 14, 0, GuiInset + 8)
+            else
+                Stack.AnchorPoint = Vector2.new(1, 0)
+                Stack.Position = UDim2.new(1, -14, 0, GuiInset + 8)
             end
-
-            local Layout = Holder:FindFirstChildOfClass("UIListLayout")
-
+            local Layout = Stack:FindFirstChildOfClass("UIListLayout")
             if Layout then
                 Layout.HorizontalAlignment = Side == "Left" and Enum.HorizontalAlignment.Left or Enum.HorizontalAlignment.Right
-                Layout.VerticalAlignment = Enum.VerticalAlignment.Top
-            end
-
-            local Padding = Holder:FindFirstChildOfClass("UIPadding")
-
-            if Padding then
-                Padding.PaddingTop = UDim.new(0, GuiInset + 8)
             end
         end
 
@@ -11502,7 +11762,11 @@ end
                     local function ApplyMascotSound()
                         local Data = Mascot.Mascots and Mascot.Mascots[Mascot.CurrentMascot]
                         local SoundId = (type(Data) == "table" and Data.ClickSound) or "102774986031312"
-                        Mascot:SetClickSound(Library.Flags["Mascot/ClickSound"] ~= "None" and SoundId or nil)
+                        if Library.Flags["Mascot/ClickSound"] == "None" then
+                            Mascot:SetClickSound(nil)
+                        else
+                            Mascot:SetClickSound(SoundId)
+                        end
                         local Volume = tonumber(Library.Flags["Mascot/ClickVolume"]) or 80
                         Mascot:SetClickSoundVolume(Volume / 100)
                         Library:SetMascotClickVolume(Volume / 100)
@@ -11554,6 +11818,16 @@ end
                 Interface:Slider({Name = "UI Scale", Flag = "UI/Scale", Min = 50, Max = 150,
                     Default = math.floor((State.Scale or 1) * 100 + 0.5), Step = 5, Suffix = "%",
                     Callback = function(Value) Library:SetUIScale(Value / 100) Save("Scale", Value / 100) end})
+                Interface:Dropdown({Name = "UI Scale Preset", Flag = "UI/ScalePreset",
+                    Items = {"Small", "Normal", "Large", "Custom"}, Default = "Custom",
+                    Callback = function(Value)
+                        local Presets = { Small = 0.8, Normal = 1, Large = 1.2 }
+                        if not Presets[Value] then return end
+                        local Set = Library.SetFlags["UI/Scale"]
+                        if Set then Set(math.floor(Presets[Value] * 100)) end
+                        Library:SetUIScale(Presets[Value])
+                        Save("Scale", Presets[Value])
+                    end})
                 Interface:Slider({Name = "Opacity", Flag = "UI/Opacity", Min = 30, Max = 100,
                     Default = math.floor((1 - (State.Transparency or 0)) * 100 + 0.5), Suffix = "%",
                     Callback = function(Value) Library:SetWindowOpacity(1 - Value / 100) Save("Transparency", 1 - Value / 100) end})
@@ -11610,12 +11884,37 @@ end
 
                 Menu:Dropdown({Name = "UI Click Sound", Flag = "UIClickSound", Items = {"Simple click", "None"},
                     Default = "Simple click", Callback = function(Value)
-                        Library:SetUIClickSound(Value == "None" and nil or "88442833509532")
+                        if Value == "None" then
+                            Library:SetUIClickSound(nil)
+                        else
+                            Library:SetUIClickSound("88442833509532")
+                        end
                     end})
                 Menu:Slider({Name = "UI Click Volume", Flag = "UIClickVolume", Min = 0, Max = 100,
                     Default = math.floor((Library.UIClickVolume or 0.65) * 100 + 0.5), Suffix = "%",
                     Callback = function(Value) Library:SetUIClickVolume(Value / 100) end})
                 Menu:Divider()
+                Menu:SubButton({Name = "Reset All Settings", ConfirmText = "Are you sure?", ConfirmTime = 2,
+                    Callback = function()
+                        local Count = 0
+                        for _, Element in Library.AllResettableElements or {} do
+                            if Element.Default ~= nil and type(Element.Set) == "function" then
+                                local Ok = pcall(function() Element:Set(Element.Default) end)
+                                if Ok then Count += 1 end
+                            end
+                        end
+                        for _, Bind in Library.KeybindRegistry or {} do
+                            local Ok = pcall(function()
+                                if Bind.DefaultKey then
+                                    Bind:Set({Key = Bind.DefaultKey, Mode = Bind.DefaultMode})
+                                else
+                                    Bind:Clear()
+                                end
+                            end)
+                            if Ok then Count += 1 end
+                        end
+                        Library:Notification({Description = tostring(Count) .. " options reset to default", Duration = 3})
+                    end})
                 Menu:SubButton({Name = "Unload", ConfirmText = "are you sure?", ConfirmTime = 1.5,
                     Callback = function() task.defer(function() Library:Exit() end) end})
             end
