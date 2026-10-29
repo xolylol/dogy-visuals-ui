@@ -6463,129 +6463,162 @@ Library.Section = function(Self, Params)
     return setmetatable(Section, Library)
 end
 
-        -- ---------- Tabbox: switchable pages INSIDE one Section ----------
-        -- Usage:
-        --   local Box = Section:Tabbox({Tabs = {"Tab 1", "Tab 2"}})
-        --   Box:Tab("Tab 1"):Toggle({...})
-        --   Box:Tab("Tab 2"):Slider({...})
-        -- Tab objects are regular Section-compatible containers; all normal
-        -- components work without a second top-level Window:Page.
+        -- ---------- Section:Tabbox (v24, inline segmented tabs) ----------
+        -- One inline selector with a single content region. The host Section
+        -- already draws the card, so the tabbox adds NO second card or stroke.
+        -- local Tabs = Section:Tabbox({Tabs = {"Tab 1", "Tab 2"}})
+        -- Tabs:Tab("Tab 1"):Toggle({...})
         Library.Tabbox = function(Self, Params)
             Params = Params or {}
-            local HostSection = Self
-            local RawTabs = Params.Tabs or Params.tabs or {}
-            local Box = {Window = Self.Window, Page = Self.Page,
-                Section = Self, Tabs = {}, Order = {}, Active = nil, Items = {}}
-            local Content = HostSection.Items["Content"].Instance
+            local Host = Self
+            local Box = {Window = Host.Window, Page = Host.Page, Section = Host,
+                Tabs = {}, Order = {}, Active = nil, Items = {}}
+            local Parent = Host.Items["Content"].Instance
 
             local Holder = Library:Create("Frame", {
-                Name = "mimisense-tabbox", Parent = Content,
-                BackgroundColor3 = Library.Theme["Background"],
-                BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, 0),
-                AutomaticSize = Enum.AutomaticSize.Y,
-                ClipsDescendants = false
-            }):AddToTheme({BackgroundColor3 = "Background"})
-            Library:Create("UICorner", {Parent = Holder.Instance, CornerRadius = UDim.new(0, 6)})
-            Library:Create("UIStroke", {Parent = Holder.Instance,
-                Color = Library.Theme["Outline"], Thickness = 1}):AddToTheme({Color = "Outline"})
-            Library:Create("UIListLayout", {Parent = Holder.Instance,
-                SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 0)})
+                Name = "mimisense-tabbox", Parent = Parent,
+                BackgroundTransparency = 1, BorderSizePixel = 0,
+                Size = UDim2.new(1, 0, 0, 0),
+                AutomaticSize = Enum.AutomaticSize.Y
+            })
+            Library:Create("UIListLayout", {
+                Parent = Holder.Instance, SortOrder = Enum.SortOrder.LayoutOrder,
+                Padding = UDim.new(0, 5)
+            })
 
+            -- No extra border or full-height header. This looks like a compact
+            -- segmented control belonging to its existing Section.
             local Navigation = Library:Create("Frame", {
                 Name = "TabNavigation", Parent = Holder.Instance, LayoutOrder = 1,
-                Size = UDim2.new(1, 0, 0, 34), BorderSizePixel = 0,
-                BackgroundColor3 = Library.Theme["Inline"]
-            }):AddToTheme({BackgroundColor3 = "Inline"})
-            Library:Create("UICorner", {Parent = Navigation.Instance,
-                CornerRadius = UDim.new(0, 6)})
+                Size = UDim2.new(1, 0, 0, 29), BackgroundTransparency = 1,
+                BorderSizePixel = 0
+            })
             local NavLayout = Library:Create("UIListLayout", {
                 Parent = Navigation.Instance,
                 FillDirection = Enum.FillDirection.Horizontal,
                 SortOrder = Enum.SortOrder.LayoutOrder,
-                Padding = UDim.new(0, 0)
+                VerticalAlignment = Enum.VerticalAlignment.Center,
+                Padding = UDim.new(0, 4)
             })
-
             local BodyHolder = Library:Create("Frame", {
                 Name = "TabContent", Parent = Holder.Instance, LayoutOrder = 2,
+                Size = UDim2.new(1, 0, 0, 0),
                 BackgroundTransparency = 1, BorderSizePixel = 0,
-                Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y
+                AutomaticSize = Enum.AutomaticSize.Y
             })
-            Library:Create("UIListLayout", {Parent = BodyHolder.Instance,
-                SortOrder = Enum.SortOrder.LayoutOrder})
+            Library:Create("UIListLayout", {
+                Parent = BodyHolder.Instance, SortOrder = Enum.SortOrder.LayoutOrder
+            })
 
-            local function UpdateNavigation()
-                local Count = math.max(#Box.Order, 1)
+            local Ease = TweenInfo.new(0.17, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+            local function Refresh(Animate)
+                local Count = math.max(1, #Box.Order)
+                local Gaps = 4 * (Count - 1)
                 for Index, Tab in Box.Order do
-                    local Width = 1 / Count
-                    Tab.Button.Instance.Size = UDim2.new(Width, 0, 1, 0)
-                    Tab.Button.Instance.LayoutOrder = Index
-                    Tab.Content.Instance.Visible = Tab == Box.Active
-                    -- No fixed min height: active tab expands the Section.
                     local Selected = Tab == Box.Active
-                    Tab.Button.Instance.BackgroundColor3 = Library.Theme[Selected and "Tab" or "Inline"]
-                    Tab.Button.Instance.TextColor3 = Library.Theme[Selected and "Text" or "Inactive Text"]
-                    Tab.Button:ChangeItemTheme({BackgroundColor3 = Selected and "Tab" or "Inline",
-                        TextColor3 = Selected and "Text" or "Inactive Text"})
+                    Tab.Button.Instance.LayoutOrder = Index
+                    Tab.Button.Instance.Size = UDim2.new(1 / Count, -Gaps / Count, 1, 0)
+                    Tab.Content.Instance.Visible = Selected
+                    Tab.Underline.Instance.Visible = Selected
+
+                    local Background = Library.Theme[Selected and "Tab" or "Inline"]
+                    local Text = Library.Theme[Selected and "Text" or "Inactive Text"]
+                    Tab.Button:ChangeItemTheme({
+                        BackgroundColor3 = Selected and "Tab" or "Inline",
+                        TextColor3 = Selected and "Text" or "Inactive Text"
+                    })
+                    if Animate then
+                        Tab.Button:Tween({
+                            BackgroundTransparency = Selected and 0 or 0.35,
+                            BackgroundColor3 = Background,
+                            TextColor3 = Text
+                        }, Ease)
+                    else
+                        Tab.Button.Instance.BackgroundTransparency = Selected and 0 or 0.35
+                        Tab.Button.Instance.BackgroundColor3 = Background
+                        Tab.Button.Instance.TextColor3 = Text
+                    end
+                    Tab.Underline.Instance.BackgroundColor3 = Library.Theme["Accent"]
                 end
             end
 
-            function Box:SetTab(Target)
-                local Tab = type(Target) == "table" and Target or self.Tabs[tostring(Target)]
+            function Box:SetTab(Name)
+                local Tab = type(Name) == "table" and Name or self.Tabs[tostring(Name)]
                 if not Tab or Tab == self.Active then return Tab end
                 self.Active = Tab
-                UpdateNavigation()
+                Refresh(true)
                 return Tab
             end
 
-            function Box:Tab(Spec)
-                local Name = type(Spec) == "table" and (Spec.Name or Spec.name) or Spec
-                Name = tostring(Name or ("Tab " .. (#self.Order + 1)))
+            function Box:Tab(Data)
+                local Name = type(Data) == "table" and (Data.Name or Data.name) or Data
+                Name = tostring(Name or ("Tab " .. #self.Order + 1))
                 if self.Tabs[Name] then return self.Tabs[Name] end
                 local Button = Library:Create("TextButton", {
-                    Name = "TabButton", Parent = Navigation.Instance, Text = Name,
-                    FontFace = Library.Font, TextSize = Library.FontSize,
-                    BackgroundColor3 = Library.Theme["Inline"],
+                    Name = "TabButton", Parent = Navigation.Instance,
+                    Text = Name, FontFace = Library.Font,
+                    TextSize = Library.FontSize,
                     TextColor3 = Library.Theme["Inactive Text"],
+                    TextTruncate = Enum.TextTruncate.AtEnd,
+                    BackgroundColor3 = Library.Theme["Inline"],
                     AutoButtonColor = false, BorderSizePixel = 0,
                     Size = UDim2.new(1, 0, 1, 0)
                 }):AddToTheme({BackgroundColor3 = "Inline", TextColor3 = "Inactive Text"})
+                Library:Create("UICorner", {
+                    Parent = Button.Instance, CornerRadius = UDim.new(0, 5)
+                })
+                local Underline = Library:Create("Frame", {
+                    Name = "ActiveIndicator", Parent = Button.Instance,
+                    AnchorPoint = Vector2.new(0.5, 1),
+                    Position = UDim2.new(0.5, 0, 1, 0),
+                    Size = UDim2.new(0.44, 0, 0, 2),
+                    BackgroundColor3 = Library.Theme["Accent"],
+                    BorderSizePixel = 0, Visible = false
+                }):AddToTheme({BackgroundColor3 = "Accent"})
+                Library:Create("UICorner", {Parent = Underline.Instance,
+                    CornerRadius = UDim.new(1, 0)})
 
                 local Body = Library:Create("Frame", {
                     Name = "TabBody", Parent = BodyHolder.Instance,
-                    BackgroundTransparency = 1, BorderSizePixel = 0,
                     Size = UDim2.new(1, 0, 0, 0),
+                    BackgroundTransparency = 1, BorderSizePixel = 0,
                     AutomaticSize = Enum.AutomaticSize.Y,
                     Visible = false
                 })
                 Library:Create("UIPadding", {
                     Parent = Body.Instance,
-                    PaddingTop = UDim.new(0, 9), PaddingBottom = UDim.new(0, 9),
-                    PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10)
+                    PaddingTop = UDim.new(0, 3),
+                    PaddingBottom = UDim.new(0, 3),
+                    PaddingLeft = UDim.new(0, 2),
+                    PaddingRight = UDim.new(0, 2)
                 })
-                Library:Create("UIListLayout", {Parent = Body.Instance,
-                    SortOrder = Enum.SortOrder.LayoutOrder,
-                    Padding = UDim.new(0, 6)})
+                Library:Create("UIListLayout", {
+                    Parent = Body.Instance, SortOrder = Enum.SortOrder.LayoutOrder,
+                    Padding = UDim.new(0, 6)
+                })
 
-                -- Proxy shares all existing Section element constructors.
-                local Tab = setmetatable({Name = Name,
-                    Side = HostSection.Side, Window = HostSection.Window,
-                    Page = HostSection.Page, IsSettings = HostSection.IsSettings,
-                    Items = {Content = Body}, Elements = HostSection.Elements,
-                    ParentSection = HostSection, Button = Button, Content = Body
+                -- All standard element methods remain available to each tab.
+                local Tab = setmetatable({
+                    Name = Name, Side = Host.Side,
+                    Window = Host.Window, Page = Host.Page,
+                    IsSettings = Host.IsSettings,
+                    Items = {Content = Body}, Elements = Host.Elements,
+                    ParentSection = Host,
+                    Button = Button, Underline = Underline, Content = Body
                 }, Library)
                 self.Tabs[Name] = Tab
                 table.insert(self.Order, Tab)
                 Button:Connect("MouseButton1Down", function()
-                    if self.Active ~= Tab then self:SetTab(Name) end
+                    self:SetTab(Name)
                 end)
                 if not self.Active then self.Active = Tab end
-                UpdateNavigation()
+                Refresh(false)
                 return Tab
             end
             Box.AddTab = Box.Tab
             Box.Select = Box.SetTab
             Box.Items = {Holder = Holder, Header = Navigation, Content = BodyHolder}
-            for _, Entry in RawTabs do
+            for _, Entry in Params.Tabs or Params.tabs or {} do
                 Box:Tab(Entry)
             end
             return Box
@@ -11009,10 +11042,11 @@ end
             end
         end
 
-        -- ---------- mimisense PNG glow ----------
-        -- Same layering principle as Obsidian: one transparent PNG OUTSIDE each
-        -- overlay's bounds, behind its content. Never construct rings/strokes.
-        -- The user's image is downloaded once to the existing Assets directory.
+        -- ---------- mimisense PNG glow (v24) ----------
+        -- Follow each window using its own UI hierarchy. Never use a separate
+        -- ScreenGui sibling with copied AbsolutePosition (it lags behind tweens).
+        -- AutomaticSize roots must NOT get a direct ImageLabel child: it would
+        -- influence UIListLayout/size and reproduce the oversized Watermark bug.
         Library.MenuGlowEnabled = Library.MenuGlowEnabled ~= false
         Library.GlowImageUrl = "https://raw.githubusercontent.com/xolylol/mimisense/main/assets/Glow.png"
         Library.GlowFallbackAsset = "rbxassetid://88645182616510"
@@ -11021,72 +11055,82 @@ end
 
         local function ResolveGlowAsset()
             if CachedGlowAsset then return CachedGlowAsset end
-            CachedGlowAsset = Library.GlowFallbackAsset
-            if type(getcustomasset) ~= "function" then return CachedGlowAsset end
-
-            local AssetPath = Library.Directory .. Library.Folders.Assets .. "/Glow.png"
-            local Exists = false
-            if type(isfile) == "function" then
-                local Ok, Result = pcall(isfile, AssetPath)
-                Exists = Ok and Result == true
-            end
-            if not Exists and type(writefile) == "function" then
-                local Ok, Data = pcall(function()
-                    return game:HttpGet(Library.GlowImageUrl)
-                end)
-                if Ok and type(Data) == "string" and Data:sub(1, 8) == "\137PNG\r\n\026\n" then
-                    local Saved = pcall(writefile, AssetPath, Data)
-                    Exists = Saved
+            local Asset = Library.GlowFallbackAsset
+            if type(getcustomasset) == "function" and type(writefile) == "function" then
+                local Path = Library.Directory .. Library.Folders.Assets .. "/Glow.png"
+                local Found = false
+                if type(isfile) == "function" then
+                    local Ok, Yes = pcall(isfile, Path)
+                    Found = Ok and Yes == true
+                end
+                if not Found then
+                    local Ok, Bytes = pcall(function()
+                        return game:HttpGet(Library.GlowImageUrl)
+                    end)
+                    if Ok and type(Bytes) == "string"
+                        and Bytes:sub(1, 8) == "\137PNG\r\n\026\n" then
+                        Found = pcall(writefile, Path, Bytes)
+                    end
+                end
+                if Found then
+                    local Ok, Custom = pcall(getcustomasset, Path)
+                    if Ok and type(Custom) == "string" and Custom ~= "" then
+                        Asset = Custom
+                    end
                 end
             end
-            if Exists then
-                local Ok, Asset = pcall(getcustomasset, AssetPath)
-                if Ok and type(Asset) == "string" and Asset ~= "" then
-                    CachedGlowAsset = Asset
+            CachedGlowAsset = Asset
+            return Asset
+        end
+
+        local function GlowTargets(Window)
+            local Targets = {}
+            local function Add(RootItem, AnchorItem, Style)
+                local Root = RootItem and RootItem.Instance
+                local Anchor = AnchorItem and AnchorItem.Instance or Root
+                if Root and Anchor and Root:IsA("GuiObject") and Anchor:IsA("GuiObject")
+                    and Root.Parent then
+                    table.insert(Targets, {Root = Root, Anchor = Anchor, Style = Style})
                 end
             end
-            return CachedGlowAsset
-        end
-
-        local function IsGlowTargetVisible(Object)
-            local Node = Object
-            while Node and Node ~= Library.Holder.Instance do
-                if Node:IsA("GuiObject") and not Node.Visible then return false end
-                Node = Node.Parent
+            -- These two do not use automatic sizing; direct child is safe.
+            Add(Window.Items.MainFrame, nil, "normal")
+            local WM = rawget(Window, "Watermark")
+            if type(WM) == "table" and WM.Items then
+                -- Logo has a FIXED size and does not participate in root layout
+                -- as a direct sibling. The PNG therefore cannot expand Watermark.
+                Add(WM.Items.Watermark, WM.Items.Logo, "watermark")
             end
-            return Node == Library.Holder.Instance
+            local KB = rawget(Window, "KeybindList")
+            if type(KB) == "table" and KB.Items then
+                Add(KB.Items.KeybindList, KB.Items.Top, "keybind")
+            end
+            local ESP = rawget(Window, "ESPPreview")
+            if type(ESP) == "table" and ESP.Items then
+                Add(ESP.Items.ESPPreview, nil, "normal")
+            end
+            return Targets
         end
 
-        Library.SetMenuGlow = function(Self, _Strength, Enabled)
+        Library.SetMenuGlow = function(Self, _Ignored, Enabled)
             Library.MenuGlowEnabled = Enabled ~= false
             local Window = Library.ActiveWindow
             if not Window or not Window.Items or not Library.Holder then return end
-
-            local Targets = {}
-            local function Add(Item)
-                local Root = Item and Item.Instance
-                if Root and Root:IsA("GuiObject") and Root.Parent then
-                    table.insert(Targets, Root)
-                end
-            end
-            Add(Window.Items.MainFrame)
-            local Watermark = rawget(Window, "Watermark")
-            Add(type(Watermark) == "table" and Watermark.Items and Watermark.Items.Watermark)
-            local KeybindList = rawget(Window, "KeybindList")
-            Add(type(KeybindList) == "table" and KeybindList.Items and KeybindList.Items.KeybindList)
-            local ESPPreview = rawget(Window, "ESPPreview")
-            Add(type(ESPPreview) == "table" and ESPPreview.Items and ESPPreview.Items.ESPPreview)
-
-            -- Clean up stale v21/v22 implementations if the UI is reused.
-            for _, Old in Library.Holder.Instance:GetChildren() do
-                if Old.Name == "MimisenseOuterGlowRing" or Old.Name == "DogySoftOuterGlow" then
-                    Old:Destroy()
+            -- Remove only obsolete global overlay images, never touch new ones.
+            for _, Child in Library.Holder.Instance:GetChildren() do
+                if Child.Name == "MimisensePNGGlow"
+                    or Child.Name == "MimisenseOuterGlowRing"
+                    or Child.Name == "DogySoftOuterGlow" then
+                    Child:Destroy()
                 end
             end
 
-            for _, Root in Targets do
+            for _, Entry in GlowTargets(Window) do
+                local Root, Anchor, Style = Entry.Root, Entry.Anchor, Entry.Style
                 local Info = Library.OuterGlowMap[Root]
-                if not Info or not Info.Image.Parent then
+                if not Info or not Info.Image.Parent or Info.Image.Parent ~= Anchor then
+                    local Old = Anchor:FindFirstChild("MimisensePNGGlow")
+                    if Old then Old:Destroy() end
                     local Image = Instance.new("ImageLabel")
                     Image.Name = "MimisensePNGGlow"
                     Image.BackgroundTransparency = 1
@@ -11094,45 +11138,51 @@ end
                     Image.Active = false
                     Image.Selectable = false
                     Image.ZIndex = 0
-                    Image.ScaleType = Enum.ScaleType.Stretch
                     Image.Image = ResolveGlowAsset()
-                    Image.ImageColor3 = Library.Theme["Accent"]
-                    Image.ImageTransparency = 0.18
-                    Image.Visible = false
-                    Image.Parent = Library.Holder.Instance
-
+                    Image.ImageTransparency = 0.32
+                    Image.ScaleType = Enum.ScaleType.Stretch
+                    Image.AnchorPoint = Vector2.zero
+                    Image.Parent = Anchor
                     Info = {Image = Image}
                     Library.OuterGlowMap[Root] = Info
-                    local function Update()
-                        if not Root.Parent or not Image.Parent then
-                            Image.Visible = false
-                            return
+
+                    local function UpdateSize()
+                        if not Root.Parent or not Anchor.Parent then return end
+                        if Style == "watermark" then
+                            -- Watermark has 10px left padding, logo is vertically
+                            -- centered in the default 45px tall bar. No screen
+                            -- coordinate conversion on drag: relative offset only.
+                            local Scale = Anchor.AbsoluteSize.Y / math.max(Anchor.Size.Y.Offset, 1)
+                            if Scale < 0.01 then Scale = 1 end
+                            Image.Position = UDim2.fromOffset(-30, -27.5)
+                            Image.Size = UDim2.fromOffset(
+                                Root.AbsoluteSize.X / Scale + 40,
+                                Root.AbsoluteSize.Y / Scale + 40)
+                        elseif Style == "keybind" then
+                            local Scale = Anchor.AbsoluteSize.Y / math.max(Anchor.Size.Y.Offset, 1)
+                            if Scale < 0.01 then Scale = 1 end
+                            Image.Position = UDim2.fromOffset(-20, -20)
+                            Image.Size = UDim2.new(1, 40, 0, Root.AbsoluteSize.Y / Scale + 40)
+                        else
+                            Image.Position = UDim2.fromOffset(-20, -20)
+                            Image.Size = UDim2.new(1, 40, 1, 40)
                         end
-                        local P, S = Root.AbsolutePosition, Root.AbsoluteSize
-                        Image.Position = UDim2.fromOffset(math.floor(P.X - 20), math.floor(P.Y - 20))
-                        Image.Size = UDim2.fromOffset(math.ceil(S.X + 40), math.ceil(S.Y + 40))
-                        Image.Visible = Library.MenuGlowEnabled and IsGlowTargetVisible(Root)
-                            and S.X > 0 and S.Y > 0
                     end
-                    Info.Update = Update
-                    Library:Connect(Root:GetPropertyChangedSignal("AbsolutePosition"), Update)
-                    Library:Connect(Root:GetPropertyChangedSignal("AbsoluteSize"), Update)
-                    Library:Connect(Root:GetPropertyChangedSignal("Visible"), Update)
-                    local Parent = Root.Parent
-                    while Parent and Parent ~= Library.Holder.Instance do
-                        if Parent:IsA("GuiObject") then
-                            Library:Connect(Parent:GetPropertyChangedSignal("Visible"), Update)
-                        end
-                        Parent = Parent.Parent
+                    Info.UpdateSize = UpdateSize
+                    -- Dimensions can change (FPS/Ping fields, keybind rows), but
+                    -- screen position ALWAYS follows the parent automatically.
+                    if Style ~= "normal" then
+                        Library:Connect(Root:GetPropertyChangedSignal("AbsoluteSize"), UpdateSize)
+                        Library:Connect(Anchor:GetPropertyChangedSignal("AbsoluteSize"), UpdateSize)
                     end
                     Library:Connect(Root.Destroying, function()
-                        Image:Destroy()
                         Library.OuterGlowMap[Root] = nil
+                        if Image.Parent then Image:Destroy() end
                     end)
                 end
                 Info.Image.ImageColor3 = Library.Theme["Accent"]
                 Info.Image.Visible = Library.MenuGlowEnabled
-                Info.Update()
+                Info.UpdateSize()
             end
         end
 
