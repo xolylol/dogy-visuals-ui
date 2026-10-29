@@ -38,7 +38,7 @@ local GuiInset = GuiService:GetGuiInset().Y
 local Mouse = cloneref(LocalPlayer:GetMouse())
 
 local Library = {
-    BuildVersion = "2026.10.29-v4-compact-menu-fixes",
+    BuildVersion = "2026.10.29-v12-showcase",
     Flags = { },
 
     MenuKeybind = tostring(Enum.KeyCode.X),
@@ -4962,13 +4962,13 @@ Library.Watermark = function(Self, Params)
                 Footer.ZIndex = 30
                 Footer.Parent = Items["MainFrame"].Instance
 
-                local FooterText = Instance.new("TextBox")
+                local FooterText = Instance.new("TextLabel")
                 FooterText.Name = "VersionText"
                 FooterText.BackgroundTransparency = 1
                 FooterText.BorderSizePixel = 0
-                FooterText.ClearTextOnFocus = false
+                
                 FooterText.Text = tostring(Library.CustomVersionLabel or "version: example")
-                FooterText.PlaceholderText = "type version/status..."
+                
                 FooterText.TextColor3 = Library.Theme["Inactive Text"]
                 FooterText.FontFace = Library.Font
                 FooterText.TextSize = Library.FontSize - 1
@@ -4977,12 +4977,6 @@ Library.Watermark = function(Self, Params)
                 FooterText.Position = UDim2.new(0, 0, 0, 0)
                 FooterText.ZIndex = 31
                 FooterText.Parent = Footer
-                FooterText.FocusLost:Connect(function()
-                    Library.CustomVersionLabel = FooterText.Text
-                end)
-                FooterText:GetPropertyChangedSignal("Text"):Connect(function()
-                    Library.CustomVersionLabel = FooterText.Text
-                end)
                 local ResizeGrip = Instance.new("TextButton")
                 ResizeGrip.Name = "ResizeGrip"
                 ResizeGrip.AnchorPoint = Vector2.new(1, 1)
@@ -5751,7 +5745,15 @@ end
             end)
 
             if #Page.Window.Pages == 0 then
-                Page:Turn()
+                -- First page must be visible immediately; never depend on a fade callback.
+                Page.Window.Current = Page
+                Page.Active = true
+                Items["Page"].Instance.Parent = Page.Window.Items["Content"].Instance
+                Items["Page"].Instance.Visible = true
+                Items["Text"].Instance.Visible = true
+                Items["Text"].Instance.TextTransparency = 0
+                Items["Icon"].Instance.ImageColor3 = Library.Theme["Accent"]
+                Items["Inactive"].Instance.BackgroundTransparency = 0
             end
 
             table.insert(Page.Window.Pages, Page)
