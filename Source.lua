@@ -1,5 +1,5 @@
--- DOGY VISUALS v19: no keybind conflict dialog, accented overlay glow, themed opaque notifications, stable options popup placement
--- DOGY VISUALS UI PATCH v7: search, tooltips, DependsOn, range slider, context menu, section reset, animated themes,
+-- mimisense v22: no keybind conflict dialog, accented overlay glow, themed opaque notifications, stable options popup placement
+-- mimisense UI library: search, tooltips, DependsOn, range slider, context menu, section reset, animated themes,
 -- export/import strings, menu settings, new colorpicker, watermark fields, keybind list modes, notification side
 --[[
     Made by samet
@@ -39,12 +39,12 @@ local GuiInset = GuiService:GetGuiInset().Y
 local Mouse = cloneref(LocalPlayer:GetMouse())
 
 local Library = {
-    BuildVersion = "2026.10.29-v21-default-startup-theme",
+    BuildVersion = "2026.10.29-v22-mimisense-glow",
     Flags = { },
 
     MenuKeybind = tostring(Enum.KeyCode.X),
 
-    Directory = "dogy visuals",
+    Directory = "mimisense",
 
     -- Ссылка на твой Icons.lua (raw) в репозитории
     IconsUrl = "https://raw.githubusercontent.com/xolylol/dogy-visuals-ui/refs/heads/main/Icons.lua",
@@ -371,7 +371,7 @@ local Library = {
         if type(Name) ~= "string" or Name == "" then return false end
         if Name == "defoult" or Name == "default" then Name = "Default" end
         if not Themes[Name] and not Library:ReadTheme(Name) then
-            warn("[Dogy] Unknown startup theme: " .. tostring(Name))
+            warn("[mimisense] Unknown startup theme: " .. tostring(Name))
             return false
         end
         Library.StartupTheme = Name
@@ -1618,7 +1618,7 @@ local Library = {
     })
 
     Library.PopupShield = Library:Create("TextButton", {
-        Parent = Library.Holder.Instance, Name = "DogyPopupInputShield",
+        Parent = Library.Holder.Instance, Name = "MimisensePopupInputShield",
         Size = UDim2.fromScale(1, 1), Position = UDim2.fromScale(0, 0),
         BackgroundTransparency = 1, BorderSizePixel = 0,
         Text = "", AutoButtonColor = false, Visible = false, ZIndex = 70
@@ -1694,7 +1694,7 @@ local Library = {
     })
 
     Library.NotificationStack = Library:Create("Frame", {
-        Name = "DogyNotificationStack", Parent = Library.NotifHolder.Instance,
+        Name = "MimisenseNotificationStack", Parent = Library.NotifHolder.Instance,
         BackgroundTransparency = 1, BorderSizePixel = 0,
         AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 14 + GuiInset),
         Size = UDim2.new(0, 308, 1, -28 - GuiInset), ClipsDescendants = false
@@ -3624,7 +3624,7 @@ Library.PlayNotificationSound = function(Self)
     local Sound = Library.NotificationSound
     if not Sound or not Sound.Parent then
         Sound = Instance.new("Sound")
-        Sound.Name = "DogyNotificationSound"
+        Sound.Name = "MimisenseNotificationSound"
         Sound.Parent = SoundService
         Library.NotificationSound = Sound
     end
@@ -4411,7 +4411,7 @@ Library.Watermark = function(Self, Params)
             if Library.PlayNotificationSound then Library:PlayNotificationSound() end
 
             local Window = Library.ActiveWindow
-            local Title = tostring(Window and Window.Name or "Dogy Visuals")
+            local Title = tostring(Window and Window.Name or "mimisense")
             local Description = tostring(Params.Description or Params.description or "")
             if Description == "" then
                 Description = tostring(Params.Name or Params.name or Params.Title or Params.title or "")
@@ -4437,14 +4437,14 @@ Library.Watermark = function(Self, Params)
             Library.NotificationCounter += 1
 
             Items.Holder = Library:Create("Frame", {
-                Name = "DogyNotificationSlot", Parent = Library.NotificationStack.Instance,
+                Name = "MimisenseNotificationSlot", Parent = Library.NotificationStack.Instance,
                 BackgroundTransparency = 1, BorderSizePixel = 0,
                 Size = UDim2.new(0, Width, 0, 0),
                 AutomaticSize = Enum.AutomaticSize.Y,
                 LayoutOrder = Library.NotificationCounter
             })
             Items.Card = Library:Create("Frame", {
-                Name = "DogyNotificationCard", Parent = Items.Holder.Instance,
+                Name = "MimisenseNotificationCard", Parent = Items.Holder.Instance,
                 BorderSizePixel = 0, ClipsDescendants = true,
                 Position = UDim2.fromOffset(SlideOffset, 0),
                 Size = UDim2.new(1, 0, 0, 0),
@@ -4453,35 +4453,35 @@ Library.Watermark = function(Self, Params)
                 BackgroundColor3 = Library.Theme["Background"]
             }):AddToTheme({BackgroundColor3 = "Background"})
             Library:Create("UICorner", {
-                Name = "DogyNotificationCorner", Parent = Items.Card.Instance,
+                Name = "MimisenseNotificationCorner", Parent = Items.Card.Instance,
                 CornerRadius = UDim.new(0, 8)
             })
             Library:Create("UIStroke", {
-                Name = "DogyNotificationOutline", Parent = Items.Card.Instance,
+                Name = "MimisenseNotificationOutline", Parent = Items.Card.Instance,
                 Color = Library.Theme["Outline"], Transparency = 0,
                 Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border
             }):AddToTheme({Color = "Outline"})
 
             Items.Body = Library:Create("Frame", {
-                Name = "DogyNotificationBody", Parent = Items.Card.Instance,
+                Name = "MimisenseNotificationBody", Parent = Items.Card.Instance,
                 BackgroundTransparency = 1, BorderSizePixel = 0,
                 Position = UDim2.fromOffset(0, 0),
                 Size = UDim2.new(1, 0, 0, 0),
                 AutomaticSize = Enum.AutomaticSize.Y
             })
             Library:Create("UIPadding", {
-                Name = "DogyNotificationPadding", Parent = Items.Body.Instance,
+                Name = "MimisenseNotificationPadding", Parent = Items.Body.Instance,
                 PaddingTop = UDim.new(0, 15),
                 PaddingBottom = UDim.new(0, 29),
                 PaddingLeft = UDim.new(0, 17),
                 PaddingRight = UDim.new(0, 17)
             })
             Library:Create("UIListLayout", {
-                Name = "DogyNotificationLayout", Parent = Items.Body.Instance,
+                Name = "MimisenseNotificationLayout", Parent = Items.Body.Instance,
                 Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder
             })
             Items.Title = Library:Create("TextLabel", {
-                Name = "DogyNotificationTitle", Parent = Items.Body.Instance,
+                Name = "MimisenseNotificationTitle", Parent = Items.Body.Instance,
                 FontFace = Library.Font, TextSize = Library.FontSize + 3,
                 Text = Title, TextColor3 = Library.Theme["Text"],
                 TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left,
@@ -4490,7 +4490,7 @@ Library.Watermark = function(Self, Params)
                 LayoutOrder = 1
             }):AddToTheme({TextColor3 = "Text"})
             Items.Description = Library:Create("TextLabel", {
-                Name = "DogyNotificationDescription", Parent = Items.Body.Instance,
+                Name = "MimisenseNotificationDescription", Parent = Items.Body.Instance,
                 FontFace = Library.Font, TextSize = Library.FontSize + 5,
                 Text = Description, Visible = Description ~= "",
                 TextColor3 = Library.Theme["Text"],
@@ -4501,7 +4501,7 @@ Library.Watermark = function(Self, Params)
             }):AddToTheme({TextColor3 = "Text"})
 
             Items.ProgressTrack = Library:Create("Frame", {
-                Name = "DogyNotificationProgressTrack", Parent = Items.Card.Instance,
+                Name = "MimisenseNotificationProgressTrack", Parent = Items.Card.Instance,
                 AnchorPoint = Vector2.new(0, 1),
                 Position = UDim2.new(0, 17, 1, -12),
                 Size = UDim2.new(1, -34, 0, 3),
@@ -4512,7 +4512,7 @@ Library.Watermark = function(Self, Params)
             Library:Create("UICorner", {Parent = Items.ProgressTrack.Instance,
                 CornerRadius = UDim.new(1, 0)})
             Items.Progress = Library:Create("Frame", {
-                Name = "DogyNotificationProgress", Parent = Items.ProgressTrack.Instance,
+                Name = "MimisenseNotificationProgress", Parent = Items.ProgressTrack.Instance,
                 Position = UDim2.fromScale(0, 0),
                 Size = UDim2.new(1, 0, 1, 0), BorderSizePixel = 0,
                 BackgroundColor3 = Library.Theme["Accent"],
@@ -4521,7 +4521,7 @@ Library.Watermark = function(Self, Params)
             Library:Create("UICorner", {Parent = Items.Progress.Instance,
                 CornerRadius = UDim.new(1, 0)})
             Items.Hit = Library:Create("TextButton", {
-                Name = "DogyNotificationHit", Parent = Items.Card.Instance,
+                Name = "MimisenseNotificationHit", Parent = Items.Card.Instance,
                 BackgroundTransparency = 1, BorderSizePixel = 0,
                 Size = UDim2.fromScale(1, 1), Text = "", ZIndex = 5
             })
@@ -4981,7 +4981,7 @@ Library.Watermark = function(Self, Params)
                     Library.LogoCache[Logo] = Result
                     return Result
                 end
-                warn("[Dogy] Could not load remote logo: " .. Logo)
+                warn("[mimisense] Could not load remote logo: " .. Logo)
                 return ""
             end
             return Logo
@@ -5003,7 +5003,7 @@ Library.Watermark = function(Self, Params)
                 or "Default"
             if ThemeName == "default" or ThemeName == "defoult" then ThemeName = "Default" end
             if not Library:ApplyNamedTheme(ThemeName) then
-                warn("[Dogy] Startup theme " .. tostring(ThemeName) .. " not found; using Default")
+                warn("[mimisense] Startup theme " .. tostring(ThemeName) .. " not found; using Default")
                 ThemeName = "Default"
                 Library:ApplyTheme("Default")
             end
@@ -5020,7 +5020,7 @@ Library.Watermark = function(Self, Params)
                 if table.find(Library.FontChoices or {}, RequestedFont) then
                     Library:SetUIFont(RequestedFont)
                 else
-                    warn("[Dogy] Unknown window font: " .. RequestedFont)
+                    warn("[mimisense] Unknown window font: " .. RequestedFont)
                     RequestedFont = nil
                 end
             end
@@ -5178,7 +5178,7 @@ Library.Watermark = function(Self, Params)
 
                 -- Minimal footer: editable version/status text and a dedicated resize grip.
                 local Footer = Instance.new("Frame")
-                Footer.Name = "DogyFooter"
+                Footer.Name = "MimisenseFooter"
                 Footer.AnchorPoint = Vector2.new(0, 1)
                 Footer.Position = UDim2.new(0, 0, 1, 0)
                 Footer.Size = UDim2.new(1, 0, 0, 24)
@@ -5211,7 +5211,7 @@ Library.Watermark = function(Self, Params)
                 FooterText.BackgroundTransparency = 1
                 FooterText.BorderSizePixel = 0
                 
-                FooterText.Text = tostring(Library.CustomVersionLabel or "version: example")
+                FooterText.Text = tostring(Library.CustomVersionLabel or "mimisense · v22")
                 
                 FooterText.TextColor3 = Library.Theme["Inactive Text"]
                 FooterText.FontFace = Library.Font
@@ -6128,7 +6128,7 @@ Library.LoadIcons = function(Self)
         Library.IconModule = Module
     else
         Library.IconModule = false
-        warn("[Dogy Visuals] Optional Icons.lua unavailable: " .. tostring(Module):sub(1, 150))
+        warn("[mimisense] Optional Icons.lua unavailable: " .. tostring(Module):sub(1, 150))
     end
 
     return Library.IconModule or nil
@@ -10872,12 +10872,25 @@ end
             end
         end
 
-        -- ---------- soft outer glow (one shadow per window, never internal lines) ----------
+        -- ---------- mimisense outer-only glow ----------
+        -- No ImageLabel / shadow asset: an image with a filled center caused
+        -- large tinted rectangles behind the main window and overlays.
+        -- These thin, transparent concentric STROKES draw only outside each root.
         Library.MenuGlowStrength = Library.MenuGlowStrength or 35
         Library.MenuGlowEnabled = Library.MenuGlowEnabled ~= false
-        Library.SoftGlowMap = setmetatable({}, {__mode = "k"})
-        local ShadowAsset = "rbxassetid://1316045217" -- soft 9-slice Roblox shadow
-        local GlowBounds = Rect.new(10, 10, 118, 118)
+        Library.OuterGlowMap = setmetatable({}, {__mode = "k"})
+
+        -- {distance outside root, stroke thickness, relative intensity}
+        -- Rings overlap with decreasing alpha to approximate a soft halo.
+        local GlowRings = {
+            {2, 3, 0.21},
+            {5, 5, 0.16},
+            {9, 6, 0.12},
+            {14, 7, 0.09},
+            {20, 8, 0.065},
+            {27, 9, 0.04},
+            {35, 11, 0.025}
+        }
 
         local function GlowVisible(Object)
             local Parent = Object
@@ -10890,10 +10903,39 @@ end
             return Parent == Library.Holder.Instance
         end
 
+        local function MakeGlowRing(Root, RingSpec)
+            local Frame = Instance.new("Frame")
+            Frame.Name = "MimisenseOuterGlowRing"
+            Frame.BackgroundTransparency = 1
+            Frame.BorderSizePixel = 0
+            Frame.Active = false
+            Frame.ZIndex = 0
+            Frame.Visible = false
+            -- Keep the rings in the same ScreenGui as the overlay, but behind
+            -- the real GUI. Never parent them inside a scrolling section.
+            Frame.Parent = Library.Holder.Instance
+
+            local Corner = Instance.new("UICorner")
+            Corner.Name = "GlowCorner"
+            Corner.CornerRadius = UDim.new(0, 10 + RingSpec[1])
+            Corner.Parent = Frame
+
+            local Stroke = Instance.new("UIStroke")
+            Stroke.Name = "GlowOnlyOutline"
+            Stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            Stroke.Thickness = RingSpec[2]
+            Stroke.Transparency = 1
+            Stroke.Color = Library.Theme["Accent"]
+            Stroke.Parent = Frame
+
+            return {Frame = Frame, Stroke = Stroke, Corner = Corner, Spec = RingSpec}
+        end
+
         Library.SetMenuGlow = function(Self, Strength, Enabled)
             Strength = math.clamp(tonumber(Strength) or 35, 0, 100)
             Library.MenuGlowStrength = Strength
             Library.MenuGlowEnabled = Enabled ~= false
+
             local Window = Library.ActiveWindow
             if not Window or not Window.Items or not Library.Holder then return end
 
@@ -10910,7 +10952,6 @@ end
             Add(WatermarkItems and WatermarkItems.Watermark, 0.85)
             local KeybindList = rawget(Window, "KeybindList")
             local KeyItems = type(KeybindList) == "table" and KeybindList.Items
-            -- Only the OUTER root: no glow on Top/Content separator.
             Add(KeyItems and KeyItems.KeybindList, 0.85)
             local ESPPreview = rawget(Window, "ESPPreview")
             local ESPItems = type(ESPPreview) == "table" and ESPPreview.Items
@@ -10918,36 +10959,45 @@ end
 
             for _, Target in Targets do
                 local Object = Target.Object
-                -- Clean up strokes from older glow controllers if present.
+                -- Also clear incompatible old glow objects if the library is
+                -- reconfigured without fully rebuilding the UI.
                 for _, OldName in {"DogyAccentGlowWide", "DogyAccentGlowSoft", "DogyAccentGlow"} do
                     local Old = Object:FindFirstChild(OldName)
                     if Old then Old:Destroy() end
                 end
-                local Info = Library.SoftGlowMap[Object]
-                if not Info or not Info.Image.Parent then
-                    local Image = Instance.new("ImageLabel")
-                    Image.Name = "DogySoftOuterGlow"
-                    Image.Parent = Library.Holder.Instance
-                    Image.BackgroundTransparency = 1
-                    Image.BorderSizePixel = 0
-                    Image.Active = false
-                    Image.Image = ShadowAsset
-                    Image.ScaleType = Enum.ScaleType.Slice
-                    Image.SliceCenter = GlowBounds
-                    Image.ImageColor3 = Library.Theme["Accent"]
-                    Image.ZIndex = 0 -- behind all window frames and their contents
-                    Library.AddToTheme({Instance = Image}, {ImageColor3 = "Accent"})
-                    Info = {Image = Image, Object = Object, Weight = Target.Weight}
-                    Library.SoftGlowMap[Object] = Info
+                local OldImage = Library.Holder.Instance:FindFirstChild("DogySoftOuterGlow")
+                while OldImage do
+                    OldImage:Destroy()
+                    OldImage = Library.Holder.Instance:FindFirstChild("DogySoftOuterGlow")
+                end
+
+                local Info = Library.OuterGlowMap[Object]
+                if not Info or not Info.Rings[1].Frame.Parent then
+                    Info = {Rings = {}, Weight = Target.Weight}
+                    for _, RingSpec in GlowRings do
+                        table.insert(Info.Rings, MakeGlowRing(Object, RingSpec))
+                    end
+                    Library.OuterGlowMap[Object] = Info
+
                     local function UpdatePosition()
-                        if not Object.Parent or not Image.Parent then return end
-                        local Padding = 22
+                        if not Object.Parent then
+                            for _, Ring in Info.Rings do Ring.Frame.Visible = false end
+                            return
+                        end
                         local Position = Object.AbsolutePosition
                         local Size = Object.AbsoluteSize
-                        Image.Position = UDim2.fromOffset(Position.X - Padding, Position.Y - Padding)
-                        Image.Size = UDim2.fromOffset(Size.X + Padding * 2, Size.Y + Padding * 2)
-                        Image.Visible = Library.MenuGlowEnabled and Library.MenuGlowStrength > 0
+                        local Visible = Library.MenuGlowEnabled and Library.MenuGlowStrength > 0
                             and GlowVisible(Object) and Size.X > 0 and Size.Y > 0
+                        -- UICorner tracks each root's actual rounded shape.
+                        local RootCorner = Object:FindFirstChildOfClass("UICorner")
+                        local BaseRadius = RootCorner and RootCorner.CornerRadius.Offset or 9
+                        for _, Ring in Info.Rings do
+                            local Margin = Ring.Spec[1]
+                            Ring.Frame.Position = UDim2.fromOffset(Position.X - Margin, Position.Y - Margin)
+                            Ring.Frame.Size = UDim2.fromOffset(Size.X + Margin * 2, Size.Y + Margin * 2)
+                            Ring.Corner.CornerRadius = UDim.new(0, math.max(4, BaseRadius + Margin))
+                            Ring.Frame.Visible = Visible
+                        end
                     end
                     Info.UpdatePosition = UpdatePosition
                     Library:Connect(Object:GetPropertyChangedSignal("AbsolutePosition"), UpdatePosition)
@@ -10961,10 +11011,15 @@ end
                         Parent = Parent.Parent
                     end
                 end
+
                 Info.Weight = Target.Weight
-                Info.Image.ImageColor3 = Library.Theme["Accent"]
-                -- One soft textured falloff; no hard nested UIStroke rectangles.
-                Info.Image.ImageTransparency = math.clamp(0.90 - Strength * 0.004 * Info.Weight, 0.50, 0.96)
+                -- Strength adjusts opacity, not the size of a giant image.
+                local Power = math.clamp(Strength / 35, 0, 2.35) * Info.Weight
+                for _, Ring in Info.Rings do
+                    local Opacity = math.clamp(Ring.Spec[3] * Power, 0, 0.75)
+                    Ring.Stroke.Transparency = 1 - Opacity
+                    Ring.Stroke.Color = Library.Theme["Accent"]
+                end
                 Info.UpdatePosition()
             end
         end
@@ -12042,7 +12097,7 @@ end
                         SetFlag("SelectedTheme", Name)
                     end
                 else
-                    warn("[Dogy] Cannot restore startup theme " .. tostring(Name))
+                    warn("[mimisense] Cannot restore startup theme " .. tostring(Name))
                     Library:ApplyTheme("Default")
                     SetFlag("SelectedTheme", "Default")
                 end
