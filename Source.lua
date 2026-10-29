@@ -1,4 +1,4 @@
--- mimisense v28: v27 soft glow retained, strength only, full theme notifications, no Tabbox.
+-- mimisense v29: v27 soft glow retained, strength only, full theme notifications, no Tabbox.
 -- mimisense v22: no keybind conflict dialog, accented overlay glow, themed opaque notifications, stable options popup placement
 -- mimisense UI library: search, tooltips, DependsOn, range slider, context menu, section reset, animated themes,
 -- export/import strings, menu settings, new colorpicker, watermark fields, keybind list modes, notification side
@@ -40,7 +40,7 @@ local GuiInset = GuiService:GetGuiInset().Y
 local Mouse = cloneref(LocalPlayer:GetMouse())
 
 local Library = {
-    BuildVersion = "2026.10.29-v28-mimisense-themenotify",
+    BuildVersion = "2026.10.29-v29-mimisense-horizontalnotify-keybindrmb",
     Flags = { },
 
     MenuKeybind = tostring(Enum.KeyCode.X),
@@ -1694,20 +1694,49 @@ local Library = {
         ResetOnSpawn = false
     })
 
+    -- mimisense v29: horizontal notifications; new cards sit beside old cards.
+    -- UIGridLayout wraps the row only when there is no more screen space.
+    Library.NotificationCardWidth = 260
+    Library.NotificationCardHeight = 88
+    Library.NotificationCardGap = 9
+    Library.NotificationMaxColumns = 4
     Library.NotificationStack = Library:Create("Frame", {
         Name = "MimisenseNotificationStack", Parent = Library.NotifHolder.Instance,
         BackgroundTransparency = 1, BorderSizePixel = 0,
         AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 14 + GuiInset),
-        Size = UDim2.new(0, 308, 1, -28 - GuiInset), ClipsDescendants = false
+        Size = UDim2.fromOffset(260, 88), ClipsDescendants = false
     })
-    Library:Create("UIListLayout", {
-        Parent = Library.NotificationStack.Instance, Name = "\0",
-        FillDirection = Enum.FillDirection.Vertical,
-        HorizontalAlignment = Enum.HorizontalAlignment.Right,
-        VerticalAlignment = Enum.VerticalAlignment.Top,
+    Library.NotificationGrid = Library:Create("UIGridLayout", {
+        Parent = Library.NotificationStack.Instance, Name = "MimisenseNotificationGrid",
+        FillDirection = Enum.FillDirection.Horizontal,
+        StartCorner = Enum.StartCorner.TopRight,
         SortOrder = Enum.SortOrder.LayoutOrder,
-        Padding = UDim.new(0, 10)
+        CellSize = UDim2.fromOffset(260, 88),
+        CellPadding = UDim2.fromOffset(9, 9),
+        FillDirectionMaxCells = 1
     })
+    Library.RefreshNotificationLayout = function(Self)
+        local Camera = workspace.CurrentCamera
+        local ViewWidth = Camera and Camera.ViewportSize.X or 1280
+        local Available = math.max(120, ViewWidth - 28)
+        local Gap = Library.NotificationCardGap
+        local Width = math.min(Library.NotificationCardWidth, Available)
+        local Height = Library.NotificationCardHeight
+        local Columns = math.max(1, math.min(Library.NotificationMaxColumns or 4,
+            math.floor((Available + Gap) / (Width + Gap))))
+        local StackWidth = Columns * Width + (Columns - 1) * Gap
+        Library.NotificationGrid.Instance.CellSize = UDim2.fromOffset(Width, Height)
+        Library.NotificationGrid.Instance.CellPadding = UDim2.fromOffset(Gap, Gap)
+        Library.NotificationGrid.Instance.FillDirectionMaxCells = Columns
+        Library.NotificationStack.Instance.Size = UDim2.fromOffset(StackWidth,
+            math.ceil((Library.NotificationLimit or 6) / Columns) * (Height + Gap))
+    end
+    Library:RefreshNotificationLayout()
+    if workspace.CurrentCamera then
+        Library:Connect(workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"), function()
+            Library:RefreshNotificationLayout()
+        end)
+    end
 
     Library.UnusedHolder = Library:Create("ScreenGui", {
         Parent = gethui(),
@@ -2985,6 +3014,8 @@ end
             local LastPicked = 0
             local FollowConnection
             local Rows = { }
+            local PendingClose = false
+            local OpenMousePosition = nil
 
             local KeybindWindow = Items["KeybindWindow"].Instance
             local KeyButton = Items["KeyButton"].Instance
@@ -3116,9 +3147,11 @@ end
             function Keybind:SetOpen(Bool)
                 Bool = Bool and true or false
 
-                if Debounce or Keybind.IsOpen == Bool then
+                if Debounce then
+                    if not Bool and Keybind.IsOpen then PendingClose = true end
                     return
                 end
+                if Keybind.IsOpen == Bool then return end
 
                 Keybind.IsOpen = Bool
                 Debounce = true
@@ -3131,10 +3164,12 @@ end
 
                     Items["KeybindWindow"]:FadeDescendants(true, function()
                         Debounce = false
-
-                        if Keybind.IsOpen then
-                            StartFollow()
+                        if PendingClose then
+                            PendingClose = false
+                            Keybind:SetOpen(false)
+                            return
                         end
+                        if Keybind.IsOpen then StartFollow() end
                     end)
 
                     Library:RegisterOpenFrame(Keybind, {
@@ -3567,22 +3602,52 @@ end
             end)
 
             local function ToggleMenu()
-                -- the click that just picked a key must not also open the menu
-                if Keybind.Picking or (os.clock() - LastPicked) < 0.2 then
-                    return
-                end
-
+                if Keybind.Picking or (os.clock() - LastPicked) < 0.2 then return end
                 Keybind:SetOpen(not Keybind.IsOpen)
             end
 
-            -- middle click (GuiButton has no MouseButton3 event, so listen to InputBegan) and right click
+            -- Middle mouse still toggles modes normally.
             Library:Connect(KeyButton.InputBegan, function(Input)
                 if Input.UserInputType == Enum.UserInputType.MouseButton3 then
                     ToggleMenu()
                 end
             end)
 
-            Items["KeyButton"]:Connect("MouseButton2Down", ToggleMenu)
+            -- Right-click is handled globally with a hit test on the key.
+            -- The button event remains as a fallback for platforms whose
+            -- absolute mouse coordinates have a GUI-inset offset.
+            -- One click can only toggle once (both signals may fire).
+            local LastRightHandled = -1
+            local function OverButton(Mouse)
+                local P, S = KeyButton.AbsolutePosition, KeyButton.AbsoluteSize
+                return Mouse.X >= P.X - 3 and Mouse.X <= P.X + S.X + 3
+                    and Mouse.Y >= P.Y - 3 and Mouse.Y <= P.Y + S.Y + 3
+            end
+            local function HandleRightClick(Mouse, IsButtonEvent)
+                if Keybind.Picking or not KeyButton.Parent or not KeyButton.Visible then return end
+                if os.clock() - LastRightHandled < 0.08 then return end
+                local AtOpeningSpot = OpenMousePosition and
+                    (Mouse - OpenMousePosition).Magnitude <= 10
+                if Keybind.IsOpen then
+                    if IsButtonEvent or OverButton(Mouse) or AtOpeningSpot then
+                        LastRightHandled = os.clock()
+                        Keybind:SetOpen(false)
+                        OpenMousePosition = nil
+                    end
+                elseif IsButtonEvent or OverButton(Mouse) then
+                    LastRightHandled = os.clock()
+                    OpenMousePosition = Mouse
+                    Keybind:SetOpen(true)
+                end
+            end
+            Library:Connect(UserInputService.InputBegan, function(Input)
+                if Input.UserInputType == Enum.UserInputType.MouseButton2 then
+                    HandleRightClick(UserInputService:GetMouseLocation(), false)
+                end
+            end)
+            Items["KeyButton"]:Connect("MouseButton2Down", function()
+                HandleRightClick(UserInputService:GetMouseLocation(), true)
+            end)
 
             if Data.Default then
                 Keybind:Set({
@@ -4397,9 +4462,10 @@ Library.Watermark = function(Self, Params)
         -- Default lifetime for all notifications that do not supply Duration.
         Library.NotificationDuration = 3
 
-        -- Notification v20: fully opaque theme-linked card, no icon or top strip.
-        -- Title always comes from the Window.Name. Duration comes from Menu Options
-        -- unless the caller explicitly passes Duration. Cards stack in NotificationStack.
+        -- mimisense v29: compact horizontal notification cards, theme-linked colors.
+        -- Icon uses the Window.Logo by default, or Params.Icon as an override;
+        -- Params.Icon=false hides it for just that message.
+        Library.NotificationShowIcon = Library.NotificationShowIcon ~= false
         Library.Notification = function(Self, Params)
             Params = Params or {}
             if Library.NotificationEnabled == false then return nil end
@@ -4415,15 +4481,24 @@ Library.Watermark = function(Self, Params)
                 or tonumber(Library.NotificationDuration) or 3, 0.5, 60)
             local Key = Title .. "\n" .. Description
 
-            for _, Existing in Library.Notifications do
-                if Existing.Key == Key and not Existing.Removing and not Existing.Closing then
-                    Existing:Restart()
-                    return Existing
-                end
+            local IconRequest = Params.Icon
+            if IconRequest == nil then IconRequest = Params.icon end
+            local ShowIcon = IconRequest ~= false and
+                (IconRequest ~= nil or Library.NotificationShowIcon ~= false)
+            local RequestedImage = (type(IconRequest) == "string" and IconRequest)
+                or (Window and Window.NotificationIcon)
+                or Library.NotificationCustomIcon
+                or (Window and Window.Logo) or ""
+            local Image = ""
+            if ShowIcon and tostring(RequestedImage) ~= "" then
+                local Ok, Result = pcall(function() return Library:ResolveLogo(RequestedImage) end)
+                if Ok and type(Result) == "string" then Image = Result end
             end
+            ShowIcon = ShowIcon and Image ~= ""
 
-            local Width = 276
-            local SlideOffset = Library.NotificationSide == "Left" and -28 or 28
+            local Width = Library.NotificationCardWidth
+            local Height = Library.NotificationCardHeight
+            local SlideOffset = Library.NotificationSide == "Left" and -20 or 20
             local Notification = {
                 Key = Key, Removing = false, Closing = false,
                 Paused = false, Elapsed = 0, Duration = Lifetime, Items = {}
@@ -4434,20 +4509,13 @@ Library.Watermark = function(Self, Params)
             Items.Holder = Library:Create("Frame", {
                 Name = "MimisenseNotificationSlot", Parent = Library.NotificationStack.Instance,
                 BackgroundTransparency = 1, BorderSizePixel = 0,
-                Size = UDim2.new(0, Width, 0, 0),
-                AutomaticSize = Enum.AutomaticSize.Y,
-                LayoutOrder = Library.NotificationCounter
+                Size = UDim2.fromOffset(Width, Height), LayoutOrder = Library.NotificationCounter
             })
-            -- mimisense v28 themed notification: matches section headers and surfaces.
-            -- No status-dependent green/red styling or translucent overlay.
             Items.Card = Library:Create("Frame", {
                 Name = "MimisenseNotificationCard", Parent = Items.Holder.Instance,
                 BorderSizePixel = 0, ClipsDescendants = true,
-                Position = UDim2.fromOffset(SlideOffset, 0),
-                Size = UDim2.new(1, 0, 0, 0),
-                AutomaticSize = Enum.AutomaticSize.Y,
-                BackgroundTransparency = 0,
-                BackgroundColor3 = Library.Theme["Background"]
+                Position = UDim2.fromOffset(SlideOffset, 0), Size = UDim2.fromScale(1, 1),
+                BackgroundTransparency = 0, BackgroundColor3 = Library.Theme["Background"]
             }):AddToTheme({BackgroundColor3 = "Background"})
             Library:Create("UICorner", {
                 Name = "MimisenseNotificationCorner", Parent = Items.Card.Instance,
@@ -4459,88 +4527,54 @@ Library.Watermark = function(Self, Params)
                 Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border
             }):AddToTheme({Color = "Outline"})
 
-            -- Same Tab header treatment as normal mimisense sections.
-            Items.Header = Library:Create("Frame", {
-                Name = "MimisenseNotificationHeader", Parent = Items.Card.Instance,
-                BackgroundColor3 = Library.Theme["Tab"], BorderSizePixel = 0,
-                Position = UDim2.fromOffset(0, 0),
-                Size = UDim2.new(1, 0, 0, 34)
-            }):AddToTheme({BackgroundColor3 = "Tab"})
-            Items.HeaderAccent = Library:Create("Frame", {
-                Name = "MimisenseNotificationHeaderAccent", Parent = Items.Header.Instance,
-                BackgroundColor3 = Library.Theme["Accent"], BorderSizePixel = 0,
-                AnchorPoint = Vector2.new(0, 0.5),
-                Position = UDim2.new(0, 14, 0.5, 0),
-                Size = UDim2.fromOffset(3, 13)
-            }):AddToTheme({BackgroundColor3 = "Accent"})
-            Library:Create("UICorner", {
-                Parent = Items.HeaderAccent.Instance,
-                CornerRadius = UDim.new(1, 0)
-            })
+            -- Small emblem box: uses the Tab surface and leaves the icon untinted.
+            if ShowIcon then
+                Items.IconPlate = Library:Create("Frame", {
+                    Name = "MimisenseNotificationIconPlate", Parent = Items.Card.Instance,
+                    Position = UDim2.fromOffset(11, 15), Size = UDim2.fromOffset(34, 34),
+                    BorderSizePixel = 0, BackgroundColor3 = Library.Theme["Tab"]
+                }):AddToTheme({BackgroundColor3 = "Tab"})
+                Library:Create("UICorner", {Parent = Items.IconPlate.Instance,
+                    CornerRadius = UDim.new(0, 7)})
+                Items.Icon = Library:Create("ImageLabel", {
+                    Name = "MimisenseNotificationIcon", Parent = Items.IconPlate.Instance,
+                    Position = UDim2.fromOffset(5, 5), Size = UDim2.new(1, -10, 1, -10),
+                    BackgroundTransparency = 1, BorderSizePixel = 0,
+                    Image = Image, ImageColor3 = Color3.new(1, 1, 1),
+                    ScaleType = Enum.ScaleType.Fit
+                })
+            end
+
+            local TextX = ShowIcon and 54 or 13
             Items.Title = Library:Create("TextLabel", {
-                Name = "MimisenseNotificationTitle", Parent = Items.Header.Instance,
+                Name = "MimisenseNotificationTitle", Parent = Items.Card.Instance,
                 FontFace = Library.Font, TextSize = Library.FontSize + 1,
                 Text = Title, TextColor3 = Library.Theme["Text"],
                 TextWrapped = false, TextTruncate = Enum.TextTruncate.AtEnd,
                 TextXAlignment = Enum.TextXAlignment.Left,
                 BackgroundTransparency = 1, BorderSizePixel = 0,
-                Position = UDim2.fromOffset(25, 0),
-                Size = UDim2.new(1, -40, 1, 0)
+                Position = UDim2.fromOffset(TextX, 12), Size = UDim2.new(1, -TextX - 12, 0, 20)
             }):AddToTheme({TextColor3 = "Text"})
-
-            -- Inline body panel; its automatic height follows long descriptions.
-            Items.Body = Library:Create("Frame", {
-                Name = "MimisenseNotificationBody", Parent = Items.Card.Instance,
-                BackgroundTransparency = 0,
-                BackgroundColor3 = Library.Theme["Inline"], BorderSizePixel = 0,
-                Position = UDim2.fromOffset(9, 41),
-                Size = UDim2.new(1, -18, 0, 0),
-                AutomaticSize = Enum.AutomaticSize.Y
-            }):AddToTheme({BackgroundColor3 = "Inline"})
-            Library:Create("UICorner", {
-                Name = "MimisenseNotificationBodyCorner", Parent = Items.Body.Instance,
-                CornerRadius = UDim.new(0, 5)
-            })
-            Library:Create("UIPadding", {
-                Name = "MimisenseNotificationPadding", Parent = Items.Body.Instance,
-                PaddingTop = UDim.new(0, 10),
-                PaddingBottom = UDim.new(0, 24),
-                PaddingLeft = UDim.new(0, 11),
-                PaddingRight = UDim.new(0, 11)
-            })
-            Library:Create("UIListLayout", {
-                Name = "MimisenseNotificationLayout", Parent = Items.Body.Instance,
-                Padding = UDim.new(0, 0), SortOrder = Enum.SortOrder.LayoutOrder
-            })
             Items.Description = Library:Create("TextLabel", {
-                Name = "MimisenseNotificationDescription", Parent = Items.Body.Instance,
-                FontFace = Library.Font, TextSize = Library.FontSize + 1,
-                Text = Description, Visible = Description ~= "",
-                TextColor3 = Library.Theme["Text"],
-                TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left,
-                TextYAlignment = Enum.TextYAlignment.Center,
+                Name = "MimisenseNotificationDescription", Parent = Items.Card.Instance,
+                FontFace = Library.Font, TextSize = Library.FontSize,
+                Text = Description, TextColor3 = Library.Theme["Inactive Text"],
+                TextWrapped = true, TextTruncate = Enum.TextTruncate.AtEnd,
+                TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
                 BackgroundTransparency = 1, BorderSizePixel = 0,
-                Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
-                LayoutOrder = 1
-            }):AddToTheme({TextColor3 = "Text"})
-
+                Position = UDim2.fromOffset(TextX, 36), Size = UDim2.new(1, -TextX - 12, 0, 29)
+            }):AddToTheme({TextColor3 = "Inactive Text"})
             Items.ProgressTrack = Library:Create("Frame", {
                 Name = "MimisenseNotificationProgressTrack", Parent = Items.Card.Instance,
-                AnchorPoint = Vector2.new(0, 1),
-                Position = UDim2.new(0, 20, 1, -11),
-                Size = UDim2.new(1, -40, 0, 3),
-                BackgroundTransparency = 0,
-                BackgroundColor3 = Library.Theme["Outline"], BorderSizePixel = 0,
-                ZIndex = 3
-            }):AddToTheme({BackgroundColor3 = "Outline"})
+                Position = UDim2.new(0, 12, 1, -10), Size = UDim2.new(1, -24, 0, 3),
+                BackgroundColor3 = Library.Theme["Inline"], BorderSizePixel = 0, ZIndex = 3
+            }):AddToTheme({BackgroundColor3 = "Inline"})
             Library:Create("UICorner", {Parent = Items.ProgressTrack.Instance,
                 CornerRadius = UDim.new(1, 0)})
             Items.Progress = Library:Create("Frame", {
                 Name = "MimisenseNotificationProgress", Parent = Items.ProgressTrack.Instance,
-                Position = UDim2.fromScale(0, 0),
-                Size = UDim2.new(1, 0, 1, 0), BorderSizePixel = 0,
-                BackgroundColor3 = Library.Theme["Accent"],
-                BackgroundTransparency = 0, ZIndex = 4
+                Position = UDim2.fromScale(0, 0), Size = UDim2.new(1, 0, 1, 0),
+                BorderSizePixel = 0, BackgroundColor3 = Library.Theme["Accent"], ZIndex = 4
             }):AddToTheme({BackgroundColor3 = "Accent"})
             Library:Create("UICorner", {Parent = Items.Progress.Instance,
                 CornerRadius = UDim.new(1, 0)})
@@ -4550,10 +4584,10 @@ Library.Watermark = function(Self, Params)
                 Size = UDim2.fromScale(1, 1), Text = "", ZIndex = 5
             })
 
-            local InInfo = TweenInfo.new(0.28, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
-            local OutInfo = TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
+            local InInfo = TweenInfo.new(0.24, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+            local OutInfo = TweenInfo.new(0.20, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
             local function Alive()
-                return Library ~= nil and Items.Holder.Instance.Parent ~= nil
+                return Items.Holder.Instance.Parent ~= nil
             end
             local ProgressTween
             function Notification:Restart()
@@ -4585,9 +4619,7 @@ Library.Watermark = function(Self, Params)
             table.insert(Library.Notifications, Notification)
             local Active = {}
             for _, Item in Library.Notifications do
-                if not Item.Removing and not Item.Closing then
-                    table.insert(Active, Item)
-                end
+                if not Item.Removing and not Item.Closing then table.insert(Active, Item) end
             end
             for Index = 1, #Active - Library.NotificationLimit do
                 Active[Index]:Dismiss()
@@ -4600,9 +4632,7 @@ Library.Watermark = function(Self, Params)
                 while Alive() and not Notification.Closing and Notification.Elapsed < Notification.Duration do
                     task.wait(0.05)
                     local Now = os.clock()
-                    if not Notification.Paused then
-                        Notification.Elapsed += Now - Last
-                    end
+                    if not Notification.Paused then Notification.Elapsed += Now - Last end
                     Last = Now
                 end
                 if not Alive() then return end
@@ -4613,18 +4643,7 @@ Library.Watermark = function(Self, Params)
                     Position = UDim2.fromOffset(SlideOffset, 0)
                 }):Play()
                 task.wait(OutInfo.Time)
-                if not Alive() then return end
-                local Holder = Items.Holder.Instance
-                Holder.AutomaticSize = Enum.AutomaticSize.None
-                Holder.Size = UDim2.fromOffset(Width, Holder.AbsoluteSize.Y)
-                Holder.ClipsDescendants = true
-                local Collapse = TweenService:Create(Holder,
-                    TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                    Size = UDim2.fromOffset(Width, 0)
-                })
-                Collapse:Play()
-                Collapse.Completed:Wait()
-                if Holder.Parent then Holder:Destroy() end
+                if Alive() then Items.Holder.Instance:Destroy() end
             end)
             return Notification
         end
@@ -5057,6 +5076,7 @@ Library.Watermark = function(Self, Params)
                 Name = Params.Name or Params.name or "Window",
                 SubName = Params.SubName or Params.subname or "",
                 Logo = Params.Logo or Params.logo or "rbxassetid://87164893498141",
+                NotificationIcon = Params.NotificationIcon or Params.notificationicon,
 
                 IsOpen = true,
                 Pages = { },
@@ -5235,7 +5255,7 @@ Library.Watermark = function(Self, Params)
                 FooterText.BackgroundTransparency = 1
                 FooterText.BorderSizePixel = 0
                 
-                FooterText.Text = tostring(Library.CustomVersionLabel or "mimisense · v28")
+                FooterText.Text = tostring(Library.CustomVersionLabel or "mimisense · v29")
                 
                 FooterText.TextColor3 = Library.Theme["Inactive Text"]
                 FooterText.FontFace = Library.Font
@@ -10755,10 +10775,11 @@ end
                 Stack.AnchorPoint = Vector2.new(1, 0)
                 Stack.Position = UDim2.new(1, -14, 0, GuiInset + 8)
             end
-            local Layout = Stack:FindFirstChildOfClass("UIListLayout")
+            local Layout = Stack:FindFirstChildOfClass("UIGridLayout")
             if Layout then
-                Layout.HorizontalAlignment = Side == "Left" and Enum.HorizontalAlignment.Left or Enum.HorizontalAlignment.Right
+                Layout.StartCorner = Side == "Left" and Enum.StartCorner.TopLeft or Enum.StartCorner.TopRight
             end
+            if Library.RefreshNotificationLayout then Library:RefreshNotificationLayout() end
         end
 
         Library:SetNotificationSide(Library.NotificationSide)
@@ -10906,7 +10927,7 @@ end
             end
         end
 
-        -- ---------- mimisense v27: native-position nine-slice soft glow ----------
+        -- ---------- mimisense v29: native-position nine-slice soft glow ----------
         -- Custom 128x128 RGBA asset embedded in Source.lua (no GitHub image
         -- download needed). The middle 64x64 region is fully transparent.
         -- Unlike Stretch, nine-slice preserves the gradient and the corners.
@@ -11916,6 +11937,9 @@ end
                 Notification:Button({Name = "Test Notification", Callback = function()
                     Library:Notification({Description = "Notification preview"})
                 end})
+                Notification:Toggle({Name = "Show Script Icon", Flag = "UI/NotificationShowIcon",
+                    Default = Library.NotificationShowIcon ~= false,
+                    Callback = function(Value) Library.NotificationShowIcon = Value end})
                 Notification:Slider({Name = "Duration", Flag = "UI/NotificationDuration",
                     Min = 1, Max = 15, Default = Library.NotificationDuration, Step = 1,
                     Suffix = "s", Callback = function(Value)
