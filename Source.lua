@@ -1,3 +1,4 @@
+-- mimisense v28: v27 soft glow retained, strength only, full theme notifications, no Tabbox.
 -- mimisense v22: no keybind conflict dialog, accented overlay glow, themed opaque notifications, stable options popup placement
 -- mimisense UI library: search, tooltips, DependsOn, range slider, context menu, section reset, animated themes,
 -- export/import strings, menu settings, new colorpicker, watermark fields, keybind list modes, notification side
@@ -39,7 +40,7 @@ local GuiInset = GuiService:GetGuiInset().Y
 local Mouse = cloneref(LocalPlayer:GetMouse())
 
 local Library = {
-    BuildVersion = "2026.10.29-v27-mimisense-softglow",
+    BuildVersion = "2026.10.29-v28-mimisense-themenotify",
     Flags = { },
 
     MenuKeybind = tostring(Enum.KeyCode.X),
@@ -4391,12 +4392,6 @@ Library.Watermark = function(Self, Params)
             return setmetatable(KeybindList, Library)
         end
 
-        Library.NotificationTypes = {
-            Success = Color3.fromRGB(95, 205, 135),
-            Warning = Color3.fromRGB(235, 185, 85),
-            Error   = Color3.fromRGB(230, 95, 95),
-        }
-
         Library.NotificationCounter = 0
         Library.NotificationLimit = 6
         -- Default lifetime for all notifications that do not supply Duration.
@@ -4443,6 +4438,8 @@ Library.Watermark = function(Self, Params)
                 AutomaticSize = Enum.AutomaticSize.Y,
                 LayoutOrder = Library.NotificationCounter
             })
+            -- mimisense v28 themed notification: matches section headers and surfaces.
+            -- No status-dependent green/red styling or translucent overlay.
             Items.Card = Library:Create("Frame", {
                 Name = "MimisenseNotificationCard", Parent = Items.Holder.Instance,
                 BorderSizePixel = 0, ClipsDescendants = true,
@@ -4462,49 +4459,76 @@ Library.Watermark = function(Self, Params)
                 Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border
             }):AddToTheme({Color = "Outline"})
 
+            -- Same Tab header treatment as normal mimisense sections.
+            Items.Header = Library:Create("Frame", {
+                Name = "MimisenseNotificationHeader", Parent = Items.Card.Instance,
+                BackgroundColor3 = Library.Theme["Tab"], BorderSizePixel = 0,
+                Position = UDim2.fromOffset(0, 0),
+                Size = UDim2.new(1, 0, 0, 34)
+            }):AddToTheme({BackgroundColor3 = "Tab"})
+            Items.HeaderAccent = Library:Create("Frame", {
+                Name = "MimisenseNotificationHeaderAccent", Parent = Items.Header.Instance,
+                BackgroundColor3 = Library.Theme["Accent"], BorderSizePixel = 0,
+                AnchorPoint = Vector2.new(0, 0.5),
+                Position = UDim2.new(0, 14, 0.5, 0),
+                Size = UDim2.fromOffset(3, 13)
+            }):AddToTheme({BackgroundColor3 = "Accent"})
+            Library:Create("UICorner", {
+                Parent = Items.HeaderAccent.Instance,
+                CornerRadius = UDim.new(1, 0)
+            })
+            Items.Title = Library:Create("TextLabel", {
+                Name = "MimisenseNotificationTitle", Parent = Items.Header.Instance,
+                FontFace = Library.Font, TextSize = Library.FontSize + 1,
+                Text = Title, TextColor3 = Library.Theme["Text"],
+                TextWrapped = false, TextTruncate = Enum.TextTruncate.AtEnd,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                BackgroundTransparency = 1, BorderSizePixel = 0,
+                Position = UDim2.fromOffset(25, 0),
+                Size = UDim2.new(1, -40, 1, 0)
+            }):AddToTheme({TextColor3 = "Text"})
+
+            -- Inline body panel; its automatic height follows long descriptions.
             Items.Body = Library:Create("Frame", {
                 Name = "MimisenseNotificationBody", Parent = Items.Card.Instance,
-                BackgroundTransparency = 1, BorderSizePixel = 0,
-                Position = UDim2.fromOffset(0, 0),
-                Size = UDim2.new(1, 0, 0, 0),
+                BackgroundTransparency = 0,
+                BackgroundColor3 = Library.Theme["Inline"], BorderSizePixel = 0,
+                Position = UDim2.fromOffset(9, 41),
+                Size = UDim2.new(1, -18, 0, 0),
                 AutomaticSize = Enum.AutomaticSize.Y
+            }):AddToTheme({BackgroundColor3 = "Inline"})
+            Library:Create("UICorner", {
+                Name = "MimisenseNotificationBodyCorner", Parent = Items.Body.Instance,
+                CornerRadius = UDim.new(0, 5)
             })
             Library:Create("UIPadding", {
                 Name = "MimisenseNotificationPadding", Parent = Items.Body.Instance,
-                PaddingTop = UDim.new(0, 15),
-                PaddingBottom = UDim.new(0, 29),
-                PaddingLeft = UDim.new(0, 17),
-                PaddingRight = UDim.new(0, 17)
+                PaddingTop = UDim.new(0, 10),
+                PaddingBottom = UDim.new(0, 24),
+                PaddingLeft = UDim.new(0, 11),
+                PaddingRight = UDim.new(0, 11)
             })
             Library:Create("UIListLayout", {
                 Name = "MimisenseNotificationLayout", Parent = Items.Body.Instance,
-                Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder
+                Padding = UDim.new(0, 0), SortOrder = Enum.SortOrder.LayoutOrder
             })
-            Items.Title = Library:Create("TextLabel", {
-                Name = "MimisenseNotificationTitle", Parent = Items.Body.Instance,
-                FontFace = Library.Font, TextSize = Library.FontSize + 3,
-                Text = Title, TextColor3 = Library.Theme["Text"],
-                TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left,
-                BackgroundTransparency = 1, BorderSizePixel = 0,
-                Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
-                LayoutOrder = 1
-            }):AddToTheme({TextColor3 = "Text"})
             Items.Description = Library:Create("TextLabel", {
                 Name = "MimisenseNotificationDescription", Parent = Items.Body.Instance,
-                FontFace = Library.Font, TextSize = Library.FontSize + 5,
+                FontFace = Library.Font, TextSize = Library.FontSize + 1,
                 Text = Description, Visible = Description ~= "",
                 TextColor3 = Library.Theme["Text"],
                 TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left,
+                TextYAlignment = Enum.TextYAlignment.Center,
                 BackgroundTransparency = 1, BorderSizePixel = 0,
                 Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
-                LayoutOrder = 2
+                LayoutOrder = 1
             }):AddToTheme({TextColor3 = "Text"})
 
             Items.ProgressTrack = Library:Create("Frame", {
                 Name = "MimisenseNotificationProgressTrack", Parent = Items.Card.Instance,
                 AnchorPoint = Vector2.new(0, 1),
-                Position = UDim2.new(0, 17, 1, -12),
-                Size = UDim2.new(1, -34, 0, 3),
+                Position = UDim2.new(0, 20, 1, -11),
+                Size = UDim2.new(1, -40, 0, 3),
                 BackgroundTransparency = 0,
                 BackgroundColor3 = Library.Theme["Outline"], BorderSizePixel = 0,
                 ZIndex = 3
@@ -5211,7 +5235,7 @@ Library.Watermark = function(Self, Params)
                 FooterText.BackgroundTransparency = 1
                 FooterText.BorderSizePixel = 0
                 
-                FooterText.Text = tostring(Library.CustomVersionLabel or "mimisense · v27")
+                FooterText.Text = tostring(Library.CustomVersionLabel or "mimisense · v28")
                 
                 FooterText.TextColor3 = Library.Theme["Inactive Text"]
                 FooterText.FontFace = Library.Font
@@ -6463,195 +6487,7 @@ Library.Section = function(Self, Params)
     return setmetatable(Section, Library)
 end
 
-        -- ---------- mimisense v25: full-section Tabbox ----------
-        -- Page:Tabbox({Side=2, Tabs={"Tab 1", "Tab 2"}})
-        -- or ExistingSection:Tabbox({Tabs={...}, FullSection=true})
-        -- The tabs REPLACE the entire normal section header. No secondary
-        -- sub-card, duplicate header or narrow centered tab bar.
-        Library.Tabbox = function(Self, Params)
-            Params = Params or {}
-            local Host = Self
-            if not Host.Items or not Host.Items.Content or not Host.Items.Top then
-                error("Tabbox requires a Section. Use Page:Tabbox(...) to create one.")
-            end
-            if Host.__MimisenseTabbox then
-                return Host.__MimisenseTabbox
-            end
-            local Full = Params.FullSection ~= false and Params.fullsection ~= false
-            local Box = {
-                Window = Host.Window, Page = Host.Page, Section = Host,
-                Tabs = {}, Order = {}, Active = nil, Items = {}
-            }
-            Host.__MimisenseTabbox = Box
-            local Parent = Host.Items.Content.Instance
-            local Header = Host.Items.Top.Instance
-
-            local Holder = Library:Create("Frame", {
-                Name = "MimisenseTabContentHolder", Parent = Parent,
-                BackgroundTransparency = 1, BorderSizePixel = 0,
-                Size = UDim2.new(1, 0, 0, 0),
-                AutomaticSize = Enum.AutomaticSize.Y
-            })
-            Library:Create("UIListLayout", {
-                Parent = Holder.Instance, SortOrder = Enum.SortOrder.LayoutOrder
-            })
-            local Navigation
-            if Full then
-                -- Reuse original section header, preserving original rounding.
-                if Host.Items.Icon then Host.Items.Icon.Instance.Visible = false end
-                if Host.Items.Text then Host.Items.Text.Instance.Visible = false end
-                if Host.Items.Arrow then Host.Items.Arrow.Instance.Visible = false end
-                if Host.Items.HeaderButton then Host.Items.HeaderButton.Instance.Visible = false end
-                Host.Collapsible = false
-                Navigation = Library:Create("Frame", {
-                    Name = "MimisenseFullSectionTabs", Parent = Header,
-                    Position = UDim2.fromOffset(5, 4),
-                    Size = UDim2.new(1, -10, 1, -8),
-                    BackgroundTransparency = 1, BorderSizePixel = 0,
-                    ZIndex = 3
-                })
-            else
-                -- Optional inline mode for sections containing other elements.
-                Navigation = Library:Create("Frame", {
-                    Name = "MimisenseInlineTabs", Parent = Parent,
-                    Size = UDim2.new(1, 0, 0, 32),
-                    BackgroundColor3 = Library.Theme["Tab"],
-                    BorderSizePixel = 0, LayoutOrder = -1,
-                }):AddToTheme({BackgroundColor3 = "Tab"})
-                Library:Create("UICorner", {
-                    Parent = Navigation.Instance, CornerRadius = UDim.new(0, 6)
-                })
-            end
-            Library:Create("UIListLayout", {
-                Parent = Navigation.Instance,
-                FillDirection = Enum.FillDirection.Horizontal,
-                SortOrder = Enum.SortOrder.LayoutOrder,
-                VerticalAlignment = Enum.VerticalAlignment.Center,
-                Padding = UDim.new(0, 3),
-            })
-
-            local Ease = TweenInfo.new(0.16, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
-            local function Refresh(Animate)
-                local Count = math.max(1, #Box.Order)
-                local Gaps = 3 * (Count - 1)
-                for Index, Tab in ipairs(Box.Order) do
-                    local Selected = Tab == Box.Active
-                    local Background = Library.Theme[Selected and "Inline" or "Tab"]
-                    local Foreground = Library.Theme[Selected and "Text" or "Inactive Text"]
-                    local Control = Tab.Button.Instance
-                    Control.LayoutOrder = Index
-                    Control.Size = UDim2.new(1 / Count, -Gaps / Count, 1, 0)
-                    Tab.Content.Instance.Visible = Selected
-                    Tab.Underline.Instance.Visible = Selected
-                    Tab.Button:ChangeItemTheme({
-                        BackgroundColor3 = Selected and "Inline" or "Tab",
-                        TextColor3 = Selected and "Text" or "Inactive Text"
-                    })
-                    if Animate then
-                        Tab.Button:Tween({BackgroundColor3 = Background, TextColor3 = Foreground}, Ease)
-                    else
-                        Control.BackgroundColor3 = Background
-                        Control.TextColor3 = Foreground
-                    end
-                    Tab.Underline.Instance.BackgroundColor3 = Library.Theme["Accent"]
-                end
-            end
-            function Box:SetTab(Name)
-                local Tab = type(Name) == "table" and Name or self.Tabs[tostring(Name)]
-                if not Tab or Tab == self.Active then return Tab end
-                self.Active = Tab
-                Refresh(true)
-                return Tab
-            end
-            function Box:Tab(Data)
-                local Name = type(Data) == "table" and (Data.Name or Data.name) or Data
-                Name = tostring(Name or ("Tab " .. tostring(#self.Order + 1)))
-                if self.Tabs[Name] then return self.Tabs[Name] end
-                local Button = Library:Create("TextButton", {
-                    Name = "MimisenseTabButton", Parent = Navigation.Instance,
-                    Text = Name, FontFace = Library.Font, TextSize = Library.FontSize,
-                    TextColor3 = Library.Theme["Inactive Text"],
-                    TextTruncate = Enum.TextTruncate.AtEnd,
-                    TextXAlignment = Enum.TextXAlignment.Center,
-                    BackgroundColor3 = Library.Theme["Tab"],
-                    BackgroundTransparency = 0,
-                    AutoButtonColor = false, BorderSizePixel = 0,
-                    Size = UDim2.new(1, 0, 1, 0), ZIndex = 4
-                }):AddToTheme({BackgroundColor3 = "Tab", TextColor3 = "Inactive Text"})
-                Library:Create("UICorner", {
-                    Parent = Button.Instance, CornerRadius = UDim.new(0, 6)
-                })
-                local Underline = Library:Create("Frame", {
-                    Name = "MimisenseTabAccent", Parent = Button.Instance,
-                    AnchorPoint = Vector2.new(0.5, 1),
-                    Position = UDim2.new(0.5, 0, 1, 0),
-                    Size = UDim2.new(0.42, 0, 0, 2),
-                    BackgroundColor3 = Library.Theme["Accent"],
-                    BorderSizePixel = 0, Visible = false, ZIndex = 5
-                }):AddToTheme({BackgroundColor3 = "Accent"})
-                Library:Create("UICorner", {
-                    Parent = Underline.Instance, CornerRadius = UDim.new(1, 0)
-                })
-
-                local Body = Library:Create("Frame", {
-                    Name = "MimisenseTabBody", Parent = Holder.Instance,
-                    Size = UDim2.new(1, 0, 0, 0),
-                    BackgroundTransparency = 1, BorderSizePixel = 0,
-                    AutomaticSize = Enum.AutomaticSize.Y,
-                    Visible = false
-                })
-                Library:Create("UIListLayout", {
-                    Parent = Body.Instance,
-                    SortOrder = Enum.SortOrder.LayoutOrder,
-                    Padding = UDim.new(0, 6)
-                })
-                local Tab = setmetatable({
-                    Name = Name, Side = Host.Side,
-                    Window = Host.Window, Page = Host.Page,
-                    IsSettings = Host.IsSettings,
-                    Items = {Content = Body}, Elements = Host.Elements,
-                    ParentSection = Host, Button = Button,
-                    Underline = Underline, Content = Body
-                }, Library)
-                self.Tabs[Name] = Tab
-                table.insert(self.Order, Tab)
-                Button:Connect("MouseButton1Down", function()
-                    self:SetTab(Name)
-                end)
-                if not self.Active then self.Active = Tab end
-                Refresh(false)
-                return Tab
-            end
-            Box.AddTab = Box.Tab
-            Box.Select = Box.SetTab
-            Box.Items = {Holder = Holder, Header = Navigation, Content = Holder}
-            for _, Entry in ipairs(Params.Tabs or Params.tabs or {}) do
-                Box:Tab(Entry)
-            end
-            return Box
-        end
-        Library.TabBox = Library.Tabbox
-
-        -- Create a dedicated section whose FULL top bar is a tab switcher.
-        Library.CreatePageTabbox = function(Self, Params)
-            Params = Params or {}
-            local Section = Self:Section({
-                Name = Params.Name or "Tabs", Side = Params.Side or Params.side or 1,
-                Collapsible = false
-            })
-            return Section:Tabbox(Params)
-        end
-        -- Page:Tabbox dispatches through this prototype method. A Section
-        -- also inherits Library.Tabbox but resolves the same API differently.
-        -- Use "Page:Tabbox" only when Self has ColumnsData.
-        local OldTabbox = Library.Tabbox
-        Library.Tabbox = function(Self, Params)
-            if Self.ColumnsData then
-                return Library.CreatePageTabbox(Self, Params)
-            end
-            return OldTabbox(Self, Params)
-        end
-        Library.TabBox = Library.Tabbox
+        -- Tabbox removed in v28; regular Page:Section remains unchanged.
 
         -- Toggle:Options({ Name = "Options", Width = 250, Icon = "settings" })  /  Label:Options({ ... })
         -- Gear next to the element, opens a window that works like a Section:
@@ -12103,16 +11939,10 @@ end
                     Default = Library.MenuGlowEnabled ~= false,
                     Callback = function(Value) Library:SetMenuGlow(nil, Value) end})
                 local GlowOptions = Panel(GlowToggle, "Glow Options")
-                GlowOptions:Slider({Name = "Strength", Flag = "UI/GlowStrength",
+                GlowOptions:Slider({Name = "Glow Strength", Flag = "UI/GlowStrength",
                     Min = 0, Max = 100, Default = Library.MenuGlowStrength, Suffix = "%",
                     Callback = function(Value)
                         Library.MenuGlowStrength = math.clamp(tonumber(Value) or 65, 0, 100)
-                        Library:SetMenuGlow(nil, Library.MenuGlowEnabled ~= false)
-                    end})
-                GlowOptions:Slider({Name = "Spread", Flag = "UI/GlowSpread",
-                    Min = 12, Max = 40, Default = Library.MenuGlowPadding,
-                    Callback = function(Value)
-                        Library.MenuGlowPadding = math.clamp(tonumber(Value) or 30, 12, 40)
                         Library:SetMenuGlow(nil, Library.MenuGlowEnabled ~= false)
                     end})
                 Library:SetMenuGlow(nil, Library.MenuGlowEnabled ~= false)
