@@ -38,7 +38,7 @@ local GuiInset = GuiService:GetGuiInset().Y
 local Mouse = cloneref(LocalPlayer:GetMouse())
 
 local Library = {
-    BuildVersion = "2026.10.28-v3-init-notifications",
+    BuildVersion = "2026.10.29-v4-compact-watermark-ui",
     Flags = { },
 
     MenuKeybind = tostring(Enum.KeyCode.X),
@@ -1543,7 +1543,7 @@ local Library = {
                 Saturation = 0,
                 Value = 0,
 
-                Alpha = 0,
+                Alpha = 1,
 
                 Color = Color3.fromRGB(255, 255, 255),
                 HexValue = "#FFFFFF",
@@ -1761,6 +1761,15 @@ local Library = {
                     ApplyStrokeMode = Enum.ApplyStrokeMode.Border
                 }):AddToTheme({Color = 'Outline'})
 
+                -- Solid-color picker: alpha/transparency controls are intentionally hidden.
+                -- Alpha remains 1 for compatibility with existing callbacks/configs.
+                for _, AlphaName in {"Alpha", "AlphaDragger"} do
+                    local AlphaItem = Items[AlphaName]
+                    if AlphaItem and AlphaItem.Instance then
+                        AlphaItem.Instance.Visible = false
+                    end
+                end
+
                 Colorpicker.Items = Items
             end
 
@@ -1784,7 +1793,7 @@ local Library = {
                     Alpha = Colorpicker.Alpha,
                     Color = Colorpicker.Color,
                     HexValue = Colorpicker.HexValue,
-                    Transparency = 1 - Colorpicker.Alpha
+                    Transparency = 0
                 }
 
                 if not IsFromAlpha and Items["Alpha"] then
@@ -2040,8 +2049,8 @@ local Library = {
                 local Bar = Items["Alpha"].Instance
                 local Y = Fraction(Input.Position.Y - Bar.AbsolutePosition.Y, Bar.AbsoluteSize.Y)
 
-                Colorpicker.Alpha = Y
-                Items["AlphaDragger"].Instance.Position = UDim2.new(0.5, 0, Y, 0)
+                Colorpicker.Alpha = 1
+                Items["AlphaDragger"].Instance.Position = UDim2.new(0.5, 0, 1, 0)
                 Colorpicker:Update(true)
             end
 
@@ -2064,7 +2073,7 @@ local Library = {
                 end
 
                 Colorpicker.Hue, Colorpicker.Saturation, Colorpicker.Value = Color:ToHSV()
-                Colorpicker.Alpha = Alpha or 0
+                Colorpicker.Alpha = 1
 
                 local Info = FromAnimation and TweenInfo.new(0.08, Enum.EasingStyle.Linear) or TweenInfo.new(Library.Animation.Time, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 
@@ -2098,7 +2107,7 @@ local Library = {
                         Alpha = Colorpicker.Alpha,
                         Color = Colorpicker.Color,
                         HexValue = Colorpicker.HexValue,
-                        Transparency = 1 - Colorpicker.Alpha
+                        Transparency = 0
                     }
 
                     if Data.Callback then
@@ -3700,6 +3709,16 @@ Library.Watermark = function(Self, Params)
 
                 Items["NewHolder"].Instance.Visible = #Enabled > 0
                 RefreshFields()
+
+                -- Keep the watermark visually centered as its content grows or shrinks.
+                task.defer(function()
+                    local WatermarkFrame = Items["Watermark"] and Items["Watermark"].Instance
+                    local Parent = WatermarkFrame and WatermarkFrame.Parent
+                    if WatermarkFrame and Parent then
+                        WatermarkFrame.AnchorPoint = Vector2.new(0.5, WatermarkFrame.AnchorPoint.Y)
+                        WatermarkFrame.Position = UDim2.new(0.5, 0, WatermarkFrame.Position.Y.Scale, WatermarkFrame.Position.Y.Offset)
+                    end
+                end)
             end
 
             function Watermark:SetField(Name, Bool)
@@ -3769,6 +3788,20 @@ Library.Watermark = function(Self, Params)
             end
 
             Watermark:Center()
+
+            -- Clicking the watermark toggles the main menu, while dragging remains available
+            -- from the existing draggable header.
+            local WatermarkClickTarget = Items["Top"] or Items["Watermark"]
+            if WatermarkClickTarget and WatermarkClickTarget.Instance then
+                Library:Connect(WatermarkClickTarget.Instance.InputBegan, function(Input)
+                    if Input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+                    local MainWindow = Library.ActiveWindow
+                    if MainWindow and MainWindow.SetOpen then
+                        MainWindow:SetOpen(not MainWindow.IsOpen)
+                    end
+                end)
+            end
+
             Self.Watermark = Watermark
 
             return setmetatable(Watermark, Library)
@@ -11334,7 +11367,7 @@ end
                     Library:QueueSaveUIState()
                 end
 
-                local InterfaceSection = SettingsPage:Section({Name = "Interface", Icon = "settings", Side = 2, ResetButton = true})
+                local InterfaceSection = SettingsPage:Section({Name = "Watermark & Interface", Icon = "settings", Side = 2, ResetButton = true, Collapsed = true})
 
                 InterfaceSection:Toggle({
                     Name = "Search Bar",
@@ -11425,7 +11458,7 @@ end
                     end
                 })
 
-                local OverlaySection = SettingsPage:Section({Name = "Overlays", Icon = "keyboard", Side = 2, ResetButton = true})
+                local OverlaySection = SettingsPage:Section({Name = "Watermark & Keybinds", Icon = "keyboard", Side = 2, ResetButton = true, Collapsed = true})
 
                 local WatermarkObject = type(Window.Watermark) == "table" and Window.Watermark.SetFields and Window.Watermark or nil
                 local KeybindListObject = type(Window.KeybindList) == "table" and Window.KeybindList.SetFilter and Window.KeybindList or nil
@@ -11438,12 +11471,12 @@ end
                     end
 
                     OverlaySection:Dropdown({
-                        Name = "Watermark Info",
+                        Name = "Watermark Modules",
                         Flag = "UI/WatermarkFields",
                         Items = Library.WatermarkFieldOrder or { "FPS", "Ping" },
                         Default = DefaultFields,
                         Multi = true,
-                        Tooltip = "Pick what the watermark shows: FPS, ping, place, session time...",
+                        Tooltip = "Choose the information displayed on the watermark.",
                         Callback = function(Value)
                             if type(Value) == "table" then
                                 WatermarkObject:SetFields(Value)
@@ -11460,7 +11493,7 @@ end
                         Flag = "UI/KeybindListMode",
                         Items = { "Only assigned", "Only active", "Show all" },
                         Default = State.KeybindListMode or "Only assigned",
-                        Tooltip = "Only assigned: binds that have a key. Only active: binds that are on right now.",
+                        Tooltip = "Choose which keybinds appear in the list.",
                         Callback = function(Value)
                             KeybindListObject:SetFilter(Value)
                             State.KeybindListMode = Value
