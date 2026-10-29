@@ -1,3 +1,4 @@
+-- DOGY VISUALS v19: no keybind conflict dialog, accented overlay glow, themed opaque notifications, stable options popup placement
 -- DOGY VISUALS UI PATCH v7: search, tooltips, DependsOn, range slider, context menu, section reset, animated themes,
 -- export/import strings, menu settings, new colorpicker, watermark fields, keybind list modes, notification side
 --[[
@@ -1668,7 +1669,7 @@ local Library = {
         Name = "DogyNotificationStack", Parent = Library.NotifHolder.Instance,
         BackgroundTransparency = 1, BorderSizePixel = 0,
         AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 14 + GuiInset),
-        Size = UDim2.new(0, 290, 1, -28 - GuiInset), ClipsDescendants = false
+        Size = UDim2.new(0, 308, 1, -28 - GuiInset), ClipsDescendants = false
     })
     Library:Create("UIListLayout", {
         Parent = Library.NotificationStack.Instance, Name = "\0",
@@ -3284,103 +3285,9 @@ end
                 end
             end
 
-            local function RequestKeyConflict(NewKey, Previous)
-                if Keybind.ConflictDialog then Keybind.ConflictDialog:Close() end
-                local Holder = Library.Holder.Instance
-                local Dialog = {IsOpen = true}
-                local Root = Instance.new("Frame")
-                Root.Name = "DogyKeybindConflict"
-                Root.Size = UDim2.fromOffset(280, 114)
-                Root.Position = UDim2.fromOffset(
-                    math.clamp(KeyButton.AbsolutePosition.X - 95, 8, math.max(8, Holder.AbsoluteSize.X - 288)),
-                    math.clamp(KeyButton.AbsolutePosition.Y + 24, 8, math.max(8, Holder.AbsoluteSize.Y - 122)))
-                Root.BackgroundColor3 = Library.Theme["Inline"]
-                Root.BorderSizePixel = 0
-                Root.ZIndex = 115
-                Root.Parent = Holder
-                local Corner = Instance.new("UICorner")
-                Corner.CornerRadius = UDim.new(0, 7)
-                Corner.Parent = Root
-                local Stroke = Instance.new("UIStroke")
-                Stroke.Color = Library.Theme["Accent"]
-                Stroke.Thickness = 1
-                Stroke.Parent = Root
-                Library.AddToTheme({Instance=Root},{BackgroundColor3="Inline"})
-                Library.AddToTheme({Instance=Stroke},{Color="Accent"})
-                local function Text(Y, Height, Message, Color)
-                    local Label = Instance.new("TextLabel")
-                    Label.BackgroundTransparency = 1
-                    Label.Position = UDim2.fromOffset(12,Y)
-                    Label.Size = UDim2.new(1,-24,0,Height)
-                    Label.FontFace = Library.Font
-                    Label.TextSize = Library.FontSize
-                    Label.TextColor3 = Library.Theme[Color]
-                    Label.TextWrapped = true
-                    Label.TextXAlignment = Enum.TextXAlignment.Left
-                    Label.Text = Message
-                    Label.ZIndex = 116
-                    Label.Parent = Root
-                    Library.AddToTheme({Instance=Label},{TextColor3=Color})
-                end
-                Text(9,20,"Keybind conflict", "Text")
-                Text(29,38, NewKey.Name .. " is used by " .. tostring(Previous.Name) .. ". Replace it?", "Inactive Text")
-                local function Action(X, Name, Callback)
-                    local Button = Instance.new("TextButton")
-                    Button.Position = UDim2.new(X, X == 0.5 and -6 or 12, 1, -38)
-                    Button.Size = UDim2.new(0.5,-18,0,26)
-                    Button.BackgroundColor3 = Library.Theme["Background"]
-                    Button.TextColor3 = Library.Theme["Text"]
-                    Button.FontFace = Library.Font
-                    Button.TextSize = Library.FontSize
-                    Button.Text = Name
-                    Button.BorderSizePixel = 0
-                    Button.ZIndex = 116
-                    Button.AutoButtonColor = false
-                    Button.Parent = Root
-                    local Round = Instance.new("UICorner")
-                    Round.CornerRadius = UDim.new(0,4)
-                    Round.Parent = Button
-                    Library.AddToTheme({Instance=Button},{BackgroundColor3="Background",TextColor3="Text"})
-                    Button.MouseButton1Click:Connect(Callback)
-                end
-                function Dialog:SetOpen(Enabled)
-                    if not Enabled then self:Close() end
-                end
-                function Dialog:Close()
-                    if not self.IsOpen then return end
-                    self.IsOpen = false
-                    Library:UnregisterOpenFrame(self)
-                    if Root.Parent then Root:Destroy() end
-                    if Keybind.ConflictDialog == self then Keybind.ConflictDialog = nil end
-                end
-                Action(0, "Replace", function()
-                    Dialog:Close()
-                    Previous:Clear()
-                    Keybind._ReplacingConflict = true
-                    Keybind:Set(NewKey)
-                    Keybind._ReplacingConflict = false
-                end)
-                Action(0.5, "Cancel", function() Dialog:Close() end)
-                Keybind.ConflictDialog = Dialog
-                Library:RegisterOpenFrame(Dialog, {
-                    AnchorInstance = KeyButton,
-                    PopupInstance = Root,
-                    HoverItems = {{Instance = Root}}
-                })
-                Library:RefreshPopupLayer()
-            end
-
             function Keybind:Set(Key)
                 if typeof(Key) == "EnumItem" then
-                    if Keybind.Ready and not Keybind._ReplacingConflict then
-                        for _, Other in Library.KeybindRegistry or {} do
-                            if Other ~= Keybind and Other.Ready and Other.Key == tostring(Key) then
-                                RequestKeyConflict(Key, Other)
-                                Finish()
-                                return
-                            end
-                        end
-                    end
+                    -- Duplicate keybinds are allowed; no conflict dialog.
                     -- every key can be bound, including Backspace / Delete (use "Remove" in the menu to unbind)
                     if Key == Enum.KeyCode.Unknown then
                         KeyButton.Text = Keybind.Value
@@ -4089,6 +3996,9 @@ Library.Watermark = function(Self, Params)
             Watermark:Center()
             Self.Watermark = Watermark
             Watermark.Window = Self
+            if Library.SetMenuGlow then
+                Library:SetMenuGlow(Library.MenuGlowStrength or 35, Library.MenuGlowEnabled ~= false)
+            end
 
             -- The root itself handles clicks. Adding a 100%-wide sibling to
             -- its UIListLayout would create a circular AutomaticSize.X chain,
@@ -4446,6 +4356,9 @@ Library.Watermark = function(Self, Params)
 
             Library.KeyList = KeybindList
             Self.KeybindList = KeybindList
+            if Library.SetMenuGlow then
+                Library:SetMenuGlow(Library.MenuGlowStrength or 35, Library.MenuGlowEnabled ~= false)
+            end
 
             return setmetatable(KeybindList, Library)
         end
@@ -4457,7 +4370,7 @@ Library.Watermark = function(Self, Params)
         }
 
         Library.NotificationCounter = 0
-        Library.NotificationLimit = 5
+        Library.NotificationLimit = 6
 
         -- Library:Notification({Name = "Saved", Description = "Config created.", Type = "Success", Duration = 3})
         --   Type: "Success" | "Warning" | "Error" | nil (theme accent). Color overrides Type.
@@ -4485,7 +4398,7 @@ Library.Watermark = function(Self, Params)
                 end
             end
 
-            local Width = 290
+            local Width = 308
             local SlideOffset = Library.NotificationSide == "Left" and -36 or 36
             local Notification = {
                 Key = Key,
@@ -4519,13 +4432,13 @@ Library.Watermark = function(Self, Params)
                 Size = UDim2.new(1, 0, 0, 0),
                 AutomaticSize = Enum.AutomaticSize.Y,
                 BackgroundTransparency = 1,
-                BackgroundColor3 = Library.Theme["Inline"]
-            }):AddToTheme({BackgroundColor3 = "Inline"})
+                BackgroundColor3 = Library.Theme["Tab"]
+            }):AddToTheme({BackgroundColor3 = "Tab"})
 
             Library:Create("UICorner", {
                 Name = "\0",
                 Parent = Items["Card"].Instance,
-                CornerRadius = UDim.new(0, 6)
+                CornerRadius = UDim.new(0, 8)
             })
 
             Items["Stroke"] = Library:Create("UIStroke", {
@@ -4533,6 +4446,7 @@ Library.Watermark = function(Self, Params)
                 Parent = Items["Card"].Instance,
                 Color = Library.Theme["Outline"],
                 Transparency = 1,
+                Thickness = 1,
                 ApplyStrokeMode = Enum.ApplyStrokeMode.Border
             }):AddToTheme({Color = "Outline"})
 
@@ -4540,27 +4454,48 @@ Library.Watermark = function(Self, Params)
                 Name = "\0",
                 Parent = Items["Card"].Instance,
                 BorderSizePixel = 0,
-                Size = UDim2.new(0, 3, 1, 0),
+                Size = UDim2.new(1, 0, 0, 2),
                 BackgroundTransparency = 1,
                 BackgroundColor3 = Color
             }):AddToTheme({BackgroundColor3 = "Accent"})
+
+            Items["IconBackground"] = Library:Create("Frame", {
+                Name = "\0", Parent = Items["Card"].Instance,
+                Position = UDim2.fromOffset(12, 14),
+                Size = UDim2.fromOffset(27, 27),
+                BorderSizePixel = 0, BackgroundTransparency = 1,
+                BackgroundColor3 = Library.Theme["Accent"]
+            }):AddToTheme({BackgroundColor3 = "Accent"})
+            Library:Create("UICorner", {
+                Name = "\0", Parent = Items["IconBackground"].Instance,
+                CornerRadius = UDim.new(0, 6)
+            })
+            Items["IconText"] = Library:Create("TextLabel", {
+                Name = "\0", Parent = Items["IconBackground"].Instance,
+                BackgroundTransparency = 1, BorderSizePixel = 0,
+                Size = UDim2.new(1, 0, 1, 0),
+                Text = "i", FontFace = Library.Font,
+                TextSize = Library.FontSize + 2,
+                TextColor3 = Library.Theme["Background"], TextTransparency = 1,
+                TextXAlignment = Enum.TextXAlignment.Center
+            }):AddToTheme({TextColor3 = "Background"})
 
             Items["Body"] = Library:Create("Frame", {
                 Name = "\0",
                 Parent = Items["Card"].Instance,
                 BackgroundTransparency = 1,
                 BorderSizePixel = 0,
-                Position = UDim2.new(0, 3, 0, 0),
-                Size = UDim2.new(1, -3, 0, 0),
+                Position = UDim2.new(0, 43, 0, 0),
+                Size = UDim2.new(1, -43, 0, 0),
                 AutomaticSize = Enum.AutomaticSize.Y
             })
 
             Library:Create("UIPadding", {
                 Name = "\0",
                 Parent = Items["Body"].Instance,
-                PaddingTop = UDim.new(0, 10),
+                PaddingTop = UDim.new(0, 11),
                 PaddingBottom = UDim.new(0, 13),
-                PaddingLeft = UDim.new(0, 12),
+                PaddingLeft = UDim.new(0, 7),
                 PaddingRight = UDim.new(0, 12)
             })
 
@@ -4633,9 +4568,11 @@ Library.Watermark = function(Self, Params)
                 { Items["Card"].Instance, "BackgroundTransparency", 0 },
                 { Items["Stroke"].Instance, "Transparency", 0 },
                 { Items["Accent"].Instance, "BackgroundTransparency", 0 },
+                { Items["IconBackground"].Instance, "BackgroundTransparency", 0 },
+                { Items["IconText"].Instance, "TextTransparency", 0 },
                 { Items["Title"].Instance, "TextTransparency", 0 },
                 { Items["Description"].Instance, "TextTransparency", 0 },
-                { Items["Progress"].Instance, "BackgroundTransparency", 0.55 },
+                { Items["Progress"].Instance, "BackgroundTransparency", 0 },
             }
 
             local InInfo = TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
@@ -5096,6 +5033,9 @@ Library.Watermark = function(Self, Params)
             end
 
             Self.ESPPreview = ESPPreview
+            if Library.SetMenuGlow then
+                Library:SetMenuGlow(Library.MenuGlowStrength or 35, Library.MenuGlowEnabled ~= false)
+            end
 
             return ESPPreview
         end
@@ -6771,6 +6711,7 @@ end
             local Hovering = false
             local Debounce = false
             local FollowConnection
+            local PopupDirection -- lock above/below while open, never flip when scrolling
 
             local function UpdateGear()
                 local Key = Options.IsOpen and "Accent" or (Hovering and "Text" or "Inactive Text")
@@ -6791,13 +6732,13 @@ end
                 X = math.clamp(X, Options.Width + 8, math.max(Screen.X - 8, Options.Width + 8))
 
                 local Y = GearButton.AbsolutePosition.Y + GearButton.AbsoluteSize.Y + 3
-                local Direction = 1
-
-                if Height > 0 and Y + Height > Screen.Y - 8 then
-                    Y = GearButton.AbsolutePosition.Y - Height - 3
-                    Direction = -1
+                if PopupDirection == nil then
+                    PopupDirection = (Height > 0 and Y + Height > Screen.Y - 8) and -1 or 1
                 end
-
+                if PopupDirection == -1 then
+                    Y = GearButton.AbsolutePosition.Y - Height - 3
+                end
+                local Direction = PopupDirection
                 Y = math.clamp(Y, 5, math.max(5, Screen.Y - Height - 5))
                 -- whole pixels only: fractional offsets make Roblox text blurry / shimmery
                 return UDim2.fromOffset(math.floor(X + 0.5), math.floor(Y + Offset * Direction + 0.5))
@@ -6843,8 +6784,11 @@ end
                 Debounce = true
 
                 if Options.IsOpen then
-                    PopupWindow.Position = GetTarget(-SlideOffset)
+                    PopupDirection = nil
+                    -- Reparent before measuring: an inactive ScreenGui can report
+                    -- zero absolute popup height and produce the wrong placement.
                     PopupWindow.Parent = Library.Holder.Instance
+                    PopupWindow.Position = GetTarget(-SlideOffset)
 
                     Items["OptionsWindow"]:Tween({Position = GetTarget(0)})
 
@@ -10982,34 +10926,60 @@ end
         -- ---------- accent-linked menu glow ----------
         Library.MenuGlowStrength = Library.MenuGlowStrength or 35
         Library.MenuGlowEnabled = Library.MenuGlowEnabled ~= false
+        -- v19: one shared glow controller for the main window and all overlays.
+        -- UIStrokes stay bound to Accent, so manual colorpicker edits recolor them live.
         Library.SetMenuGlow = function(Self, Strength, Enabled)
             Strength = math.clamp(tonumber(Strength) or 35, 0, 100)
             Library.MenuGlowStrength = Strength
             Library.MenuGlowEnabled = Enabled ~= false
+
             local Window = Library.ActiveWindow
-            local Frame = Window and Window.Items and Window.Items.MainFrame and Window.Items.MainFrame.Instance
-            if not Frame then return end
-            local Accent = Library.Theme["Accent"] or Color3.fromRGB(180, 110, 255)
-            local GlowSpecs = {
-                { Name = "DogyAccentGlowWide", Thickness = 5 + Strength * 0.16, Transparency = 0.995 - Strength * 0.0010 },
-                { Name = "DogyAccentGlowSoft", Thickness = 3 + Strength * 0.075, Transparency = 0.98 - Strength * 0.0015 },
-                { Name = "DogyAccentGlow", Thickness = 1 + Strength * 0.015, Transparency = 0.96 - Strength * 0.0020 },
-            }
-            for _, Spec in GlowSpecs do
-                local Glow = Frame:FindFirstChild(Spec.Name)
-                if not Glow then
-                    Glow = Instance.new("UIStroke")
-                    Glow.Name = Spec.Name
-                    Glow.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-                    Glow.LineJoinMode = Enum.LineJoinMode.Round
-                    Glow.Parent = Frame
-                    -- Register with the normal accent theming system on creation.
-                    Library.AddToTheme({Instance = Glow}, {Color = "Accent"})
+            if not Window or not Window.Items then return end
+            local Accent = Library.Theme["Accent"] or Color3.fromRGB(179, 165, 255)
+            local Targets = {}
+            local function Add(Object, Multiplier)
+                if Object and Object:IsA("GuiObject") and Object.Parent then
+                    table.insert(Targets, {Object = Object, Multiplier = Multiplier or 1})
                 end
-                Glow.Color = Accent
-                Glow.Thickness = Spec.Thickness
-                Glow.Transparency = (not Library.MenuGlowEnabled or Strength <= 0) and 1 or math.clamp(Spec.Transparency, 0.05, 1)
-                Glow.Enabled = Library.MenuGlowEnabled and Strength > 0
+            end
+            local Main = Window.Items.MainFrame
+            Add(Main and Main.Instance, 1)
+
+            local Watermark = rawget(Window, "Watermark")
+            local WatermarkItems = type(Watermark) == "table" and Watermark.Items
+            Add(WatermarkItems and WatermarkItems.Watermark and WatermarkItems.Watermark.Instance, 0.72)
+
+            local KeybindList = rawget(Window, "KeybindList")
+            local KeyItems = type(KeybindList) == "table" and KeybindList.Items
+            Add(KeyItems and KeyItems.Top and KeyItems.Top.Instance, 0.70)
+            Add(KeyItems and KeyItems.Content and KeyItems.Content.Instance, 0.58)
+
+            local ESPPreview = rawget(Window, "ESPPreview")
+            local ESPItems = type(ESPPreview) == "table" and ESPPreview.Items
+            Add(ESPItems and ESPItems.ESPPreview and ESPItems.ESPPreview.Instance, 0.78)
+
+            local Specs = {
+                {Name = "DogyAccentGlowWide", Thickness = 5 + Strength * 0.16, Transparency = 0.995 - Strength * 0.0010},
+                {Name = "DogyAccentGlowSoft", Thickness = 3 + Strength * 0.075, Transparency = 0.98 - Strength * 0.0015},
+                {Name = "DogyAccentGlow", Thickness = 1 + Strength * 0.015, Transparency = 0.96 - Strength * 0.0020},
+            }
+            for _, Target in Targets do
+                for _, Spec in Specs do
+                    local Object = Target.Object
+                    local Glow = Object:FindFirstChild(Spec.Name)
+                    if not Glow then
+                        Glow = Instance.new("UIStroke")
+                        Glow.Name = Spec.Name
+                        Glow.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                        Glow.LineJoinMode = Enum.LineJoinMode.Round
+                        Glow.Parent = Object
+                        Library.AddToTheme({Instance = Glow}, {Color = "Accent"})
+                    end
+                    Glow.Color = Accent
+                    Glow.Thickness = Spec.Thickness * Target.Multiplier
+                    Glow.Transparency = math.clamp(Spec.Transparency, 0.05, 1)
+                    Glow.Enabled = Library.MenuGlowEnabled and Strength > 0
+                end
             end
         end
 
