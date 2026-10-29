@@ -38,7 +38,7 @@ local GuiInset = GuiService:GetGuiInset().Y
 local Mouse = cloneref(LocalPlayer:GetMouse())
 
 local Library = {
-    BuildVersion = "2026.10.29-v4-compact-watermark-ui",
+    BuildVersion = "2026.10.29-v4-compact-menu-fixes",
     Flags = { },
 
     MenuKeybind = tostring(Enum.KeyCode.X),
@@ -363,6 +363,14 @@ local Library = {
 
         Library.ThemeTransition = nil
 
+        local ActiveWindow = Library.ActiveWindow
+        local Main = ActiveWindow and ActiveWindow.Items and ActiveWindow.Items.MainFrame and ActiveWindow.Items.MainFrame.Instance
+        if Main then
+            for _, GlowName in { "DogyAccentGlow", "DogyAccentGlowSoft", "DogyAccentGlowWide" } do
+                local Glow = Main:FindFirstChild(GlowName)
+                if Glow then Glow.Color = Library.Theme["Accent"] end
+            end
+        end
         return true
     end
 
@@ -998,8 +1006,10 @@ local Library = {
             end
 
             local MouseLocation = UserInputService:GetMouseLocation()
-            local dx = MouseLocation.X - StartMouse.X
-            local dy = MouseLocation.Y - StartMouse.Y
+            local ScaleObject = Gui:FindFirstChild("UserScale")
+            local ActiveScale = ScaleObject and ScaleObject.Scale or 1
+            local dx = (MouseLocation.X - StartMouse.X) / ActiveScale
+            local dy = (MouseLocation.Y - StartMouse.Y) / ActiveScale
 
             local x, y = StartPosition.X, StartPosition.Y
             local w, h = StartSize.X, StartSize.Y
@@ -1029,8 +1039,14 @@ local Library = {
                 h = Minimum.Y
             end
 
-            Self:Tween({Position = UDim2.fromOffset(x, y)}, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out))
-            Self:Tween({Size = UDim2.fromOffset(w, h)}, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out))
+            local ScreenSize = Gui.Parent.AbsoluteSize
+            w = math.clamp(w, Minimum.X, math.max(Minimum.X, ScreenSize.X / ActiveScale))
+            h = math.clamp(h, Minimum.Y, math.max(Minimum.Y, ScreenSize.Y / ActiveScale))
+            x = math.clamp(x, 0, math.max(0, ScreenSize.X - w))
+            y = math.clamp(y, 0, math.max(0, ScreenSize.Y - h))
+            -- Resize directly instead of creating a new tween every frame.
+            Gui.Position = UDim2.fromOffset(x, y)
+            Gui.Size = UDim2.fromOffset(w, h)
         end)
     end
 
@@ -1543,7 +1559,7 @@ local Library = {
                 Saturation = 0,
                 Value = 0,
 
-                Alpha = 1,
+                Alpha = 0,
 
                 Color = Color3.fromRGB(255, 255, 255),
                 HexValue = "#FFFFFF",
@@ -1761,15 +1777,6 @@ local Library = {
                     ApplyStrokeMode = Enum.ApplyStrokeMode.Border
                 }):AddToTheme({Color = 'Outline'})
 
-                -- Solid-color picker: alpha/transparency controls are intentionally hidden.
-                -- Alpha remains 1 for compatibility with existing callbacks/configs.
-                for _, AlphaName in {"Alpha", "AlphaDragger"} do
-                    local AlphaItem = Items[AlphaName]
-                    if AlphaItem and AlphaItem.Instance then
-                        AlphaItem.Instance.Visible = false
-                    end
-                end
-
                 Colorpicker.Items = Items
             end
 
@@ -1793,7 +1800,7 @@ local Library = {
                     Alpha = Colorpicker.Alpha,
                     Color = Colorpicker.Color,
                     HexValue = Colorpicker.HexValue,
-                    Transparency = 0
+                    Transparency = 1 - Colorpicker.Alpha
                 }
 
                 if not IsFromAlpha and Items["Alpha"] then
@@ -2049,8 +2056,8 @@ local Library = {
                 local Bar = Items["Alpha"].Instance
                 local Y = Fraction(Input.Position.Y - Bar.AbsolutePosition.Y, Bar.AbsoluteSize.Y)
 
-                Colorpicker.Alpha = 1
-                Items["AlphaDragger"].Instance.Position = UDim2.new(0.5, 0, 1, 0)
+                Colorpicker.Alpha = Y
+                Items["AlphaDragger"].Instance.Position = UDim2.new(0.5, 0, Y, 0)
                 Colorpicker:Update(true)
             end
 
@@ -2073,7 +2080,7 @@ local Library = {
                 end
 
                 Colorpicker.Hue, Colorpicker.Saturation, Colorpicker.Value = Color:ToHSV()
-                Colorpicker.Alpha = 1
+                Colorpicker.Alpha = Alpha or 0
 
                 local Info = FromAnimation and TweenInfo.new(0.08, Enum.EasingStyle.Linear) or TweenInfo.new(Library.Animation.Time, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 
@@ -2107,7 +2114,7 @@ local Library = {
                         Alpha = Colorpicker.Alpha,
                         Color = Colorpicker.Color,
                         HexValue = Colorpicker.HexValue,
-                        Transparency = 0
+                        Transparency = 1 - Colorpicker.Alpha
                     }
 
                     if Data.Callback then
@@ -3709,16 +3716,6 @@ Library.Watermark = function(Self, Params)
 
                 Items["NewHolder"].Instance.Visible = #Enabled > 0
                 RefreshFields()
-
-                -- Keep the watermark visually centered as its content grows or shrinks.
-                task.defer(function()
-                    local WatermarkFrame = Items["Watermark"] and Items["Watermark"].Instance
-                    local Parent = WatermarkFrame and WatermarkFrame.Parent
-                    if WatermarkFrame and Parent then
-                        WatermarkFrame.AnchorPoint = Vector2.new(0.5, WatermarkFrame.AnchorPoint.Y)
-                        WatermarkFrame.Position = UDim2.new(0.5, 0, WatermarkFrame.Position.Y.Scale, WatermarkFrame.Position.Y.Offset)
-                    end
-                end)
             end
 
             function Watermark:SetField(Name, Bool)
@@ -3744,8 +3741,15 @@ Library.Watermark = function(Self, Params)
                     end
                 end
 
+                local OldCenterX = Items["Watermark"].Instance.AbsolutePosition.X + Items["Watermark"].Instance.AbsoluteSize.X / 2
                 Watermark.Fields = Fields
                 RebuildFields()
+                task.defer(function()
+                    local Frame = Items["Watermark"].Instance
+                    if Frame and Frame.Parent then
+                        Frame.Position = UDim2.new(0, math.max(0, OldCenterX - Frame.AbsoluteSize.X / 2), Frame.Position.Y.Scale, Frame.Position.Y.Offset)
+                    end
+                end)
             end
 
             function Watermark:GetFields()
@@ -3788,21 +3792,24 @@ Library.Watermark = function(Self, Params)
             end
 
             Watermark:Center()
-
-            -- Clicking the watermark toggles the main menu, while dragging remains available
-            -- from the existing draggable header.
-            local WatermarkClickTarget = Items["Top"] or Items["Watermark"]
-            if WatermarkClickTarget and WatermarkClickTarget.Instance then
-                Library:Connect(WatermarkClickTarget.Instance.InputBegan, function(Input)
-                    if Input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
-                    local MainWindow = Library.ActiveWindow
-                    if MainWindow and MainWindow.SetOpen then
-                        MainWindow:SetOpen(not MainWindow.IsOpen)
-                    end
-                end)
-            end
-
             Self.Watermark = Watermark
+            Watermark.Window = Self
+
+            local WatermarkHit = Instance.new("TextButton")
+            WatermarkHit.Name = "WatermarkMenuToggle"
+            WatermarkHit.BackgroundTransparency = 1
+            WatermarkHit.BorderSizePixel = 0
+            WatermarkHit.Text = ""
+            WatermarkHit.AutoButtonColor = false
+            WatermarkHit.Size = UDim2.new(1, 0, 1, 0)
+            WatermarkHit.Position = UDim2.new(0, 0, 0, 0)
+            WatermarkHit.ZIndex = 80
+            WatermarkHit.Parent = Items["Watermark"].Instance
+            WatermarkHit.MouseButton1Click:Connect(function()
+                if Watermark.Window and Watermark.Window.SetOpen then
+                    Watermark.Window:SetOpen(not Watermark.Window.IsOpen)
+                end
+            end)
 
             return setmetatable(Watermark, Library)
         end
@@ -4830,8 +4837,8 @@ Library.Watermark = function(Self, Params)
                     BackgroundColor3 = Library.Theme["Background"]
                 }):AddToTheme({BackgroundColor3 = 'Background'})
 
-                Items["MainFrame"]:MakeDraggable()
-                Items["MainFrame"]:MakeResizeable(Vector2.new(Items["MainFrame"].Instance.AbsoluteSize.X, Items["MainFrame"].Instance.AbsoluteSize.Y))
+                Items["MainFrame"]:MakeDraggable(Items["Top"])
+                Items["MainFrame"]:MakeResizeable(Vector2.new(420, 360))
 
                 Library:Create("UICorner", {
                     Name = "\0",
@@ -4942,6 +4949,83 @@ Library.Watermark = function(Self, Params)
                 }):AddToTheme({BackgroundColor3 = 'Text'})
 
                 Window.Items = Items
+
+                -- Minimal footer: editable version/status text and a dedicated resize grip.
+                local Footer = Instance.new("Frame")
+                Footer.Name = "DogyFooter"
+                Footer.AnchorPoint = Vector2.new(0, 1)
+                Footer.Position = UDim2.new(0, 8, 1, -4)
+                Footer.Size = UDim2.new(1, -16, 0, 18)
+                Footer.BackgroundTransparency = 1
+                Footer.BorderSizePixel = 0
+                Footer.ZIndex = 30
+                Footer.Parent = Items["MainFrame"].Instance
+
+                local FooterText = Instance.new("TextBox")
+                FooterText.Name = "VersionText"
+                FooterText.BackgroundTransparency = 1
+                FooterText.BorderSizePixel = 0
+                FooterText.ClearTextOnFocus = false
+                FooterText.Text = tostring(Library.CustomVersionLabel or "version: example")
+                FooterText.PlaceholderText = "type version/status..."
+                FooterText.TextColor3 = Library.Theme["Inactive Text"]
+                FooterText.FontFace = Library.Font
+                FooterText.TextSize = Library.FontSize - 1
+                FooterText.TextXAlignment = Enum.TextXAlignment.Center
+                FooterText.Size = UDim2.new(1, -22, 1, 0)
+                FooterText.Position = UDim2.new(0, 0, 0, 0)
+                FooterText.ZIndex = 31
+                FooterText.Parent = Footer
+                FooterText.FocusLost:Connect(function()
+                    Library.CustomVersionLabel = FooterText.Text
+                end)
+                FooterText:GetPropertyChangedSignal("Text"):Connect(function()
+                    Library.CustomVersionLabel = FooterText.Text
+                end)
+                local ResizeGrip = Instance.new("TextButton")
+                ResizeGrip.Name = "ResizeGrip"
+                ResizeGrip.AnchorPoint = Vector2.new(1, 1)
+                ResizeGrip.Position = UDim2.new(1, 0, 1, 0)
+                ResizeGrip.Size = UDim2.new(0, 20, 0, 18)
+                ResizeGrip.BackgroundTransparency = 1
+                ResizeGrip.BorderSizePixel = 0
+                ResizeGrip.AutoButtonColor = false
+                ResizeGrip.Text = "↘"
+                ResizeGrip.TextColor3 = Library.Theme["Inactive Text"]
+                ResizeGrip.FontFace = Library.Font
+                ResizeGrip.TextSize = Library.FontSize + 2
+                ResizeGrip.ZIndex = 32
+                ResizeGrip.Parent = Footer
+                ResizeGrip.MouseEnter:Connect(function()
+                    ResizeGrip.TextColor3 = Library.Theme["Accent"]
+                end)
+                ResizeGrip.MouseLeave:Connect(function()
+                    ResizeGrip.TextColor3 = Library.Theme["Inactive Text"]
+                end)
+                local GripDragging = false
+                local GripStartMouse, GripStartSize
+                ResizeGrip.InputBegan:Connect(function(Input)
+                    if Input.UserInputType == Enum.UserInputType.MouseButton1 or Input.UserInputType == Enum.UserInputType.Touch then
+                        GripDragging = true
+                        GripStartMouse = UserInputService:GetMouseLocation()
+                        GripStartSize = Items["MainFrame"].Instance.AbsoluteSize
+                        Input.Changed:Connect(function()
+                            if Input.UserInputState == Enum.UserInputState.End then GripDragging = false end
+                        end)
+                    end
+                end)
+                Library:Connect(UserInputService.InputChanged, function(Input)
+                    if not GripDragging then return end
+                    if Input.UserInputType ~= Enum.UserInputType.MouseMovement and Input.UserInputType ~= Enum.UserInputType.Touch then return end
+                    local Frame = Items["MainFrame"].Instance
+                    local View = Library.Holder.Instance.AbsoluteSize
+                    local ScaleObject = Frame:FindFirstChild("UserScale")
+                    local Scale = ScaleObject and ScaleObject.Scale or 1
+                    local Delta = (UserInputService:GetMouseLocation() - GripStartMouse) / Scale
+                    local Width = math.clamp(GripStartSize.X + Delta.X, 420, math.max(420, View.X / Scale - 12))
+                    local Height = math.clamp(GripStartSize.Y + Delta.Y, 360, math.max(360, View.Y / Scale - 12))
+                    Frame.Size = UDim2.fromOffset(Width, Height)
+                end)
             end
 
             local Debounce = false
@@ -6807,9 +6891,9 @@ end
             end
 
             Items["RealButton"]:OnHover(function()
-                Items["RealButton"]:Tween({BackgroundColor3 = Library.Theme["Hovered Element"]})
+                Items["RealButton"]:Tween({BackgroundColor3 = Library.Theme["Accent"], BackgroundTransparency = 0.82})
             end, function()
-                Items["RealButton"]:Tween({BackgroundColor3 = Library.Theme.Background})
+                Items["RealButton"]:Tween({BackgroundColor3 = Library.Theme["Background"], BackgroundTransparency = 0})
             end)
 
             function Button:Press()
@@ -7925,6 +8009,41 @@ end
                         AnchorInstance = RealDropdown,
                         PopupInstance = OptionHolder,
                     })
+
+                    if Dropdown.AnchorFollowConnection then
+                        Dropdown.AnchorFollowConnection:Disconnect()
+                        Dropdown.AnchorFollowConnection = nil
+                    end
+                    Dropdown.AnchorFollowConnection = RunService.RenderStepped:Connect(function()
+                        if not Dropdown.IsOpen or not RealDropdown.Parent then return end
+                        local AnchorPos = RealDropdown.AbsolutePosition
+                        local AnchorSize = RealDropdown.AbsoluteSize
+                        local AnchorCenter = AnchorPos + AnchorSize / 2
+                        local Scroller = RealDropdown.Parent
+                        while Scroller and Scroller ~= Library.Holder.Instance and not Scroller:IsA("ScrollingFrame") do
+                            Scroller = Scroller.Parent
+                        end
+                        if Scroller and Scroller:IsA("ScrollingFrame") then
+                            local ViewPos, ViewSize = Scroller.AbsolutePosition, Scroller.AbsoluteSize
+                            local FullyOutside = AnchorPos.Y + AnchorSize.Y < ViewPos.Y or AnchorPos.Y > ViewPos.Y + ViewSize.Y
+                                or AnchorPos.X + AnchorSize.X < ViewPos.X or AnchorPos.X > ViewPos.X + ViewSize.X
+                            if FullyOutside then
+                                Dropdown:SetOpen(false)
+                                return
+                            end
+                        end
+                        local Screen = Library.Holder.Instance.AbsoluteSize
+                        local PopupHeight = math.min(Dropdown.MaxSize, Screen.Y - 24)
+                        local Below = Screen.Y - (AnchorPos.Y + AnchorSize.Y + GuiInset)
+                        local Above = AnchorPos.Y - GuiInset
+                        local PopupY = AnchorPos.Y + AnchorSize.Y + GuiInset
+                        if Below < math.min(150, PopupHeight) and Above > Below then
+                            PopupY = math.max(8, AnchorPos.Y - PopupHeight - 4)
+                        end
+                        local PopupX = math.clamp(AnchorPos.X, 4, math.max(4, Screen.X - AnchorSize.X - 4))
+                        OptionHolder.Position = UDim2.fromOffset(PopupX, PopupY)
+                        OptionHolder.Size = UDim2.fromOffset(AnchorSize.X, math.max(80, math.min(PopupHeight, PopupY < AnchorPos.Y and Above or Below)))
+                    end)
                 else
                     Items["OptionHolder"]:Tween({Position = UDim2.new(0, RealDropdown.AbsolutePosition.X, 0, RealDropdown.AbsolutePosition.Y + RealDropdown.AbsoluteSize.Y - 10 + GuiInset)})
                     Items["OptionHolder"]:FadeDescendants(false, function()
@@ -7936,6 +8055,10 @@ end
 
                     Library:CloseOpenFrameChildren(Dropdown)
                     Library:UnregisterOpenFrame(Dropdown)
+                    if Dropdown.AnchorFollowConnection then
+                        Dropdown.AnchorFollowConnection:Disconnect()
+                        Dropdown.AnchorFollowConnection = nil
+                    end
                 end
 
                 local Descendants = OptionHolder:GetDescendants()
@@ -9988,124 +10111,6 @@ end
                 table.insert(Library.Dependents, Element)
                 task.defer(Apply)
             end
-
-            -- right click: Reset to default / Copy value / Paste value
-            if ValueKinds[Kind] then
-                local Skip = false
-
-                local HasDefault = function()
-                    return Element.Default ~= nil
-                end
-
-                local GetValue = function()
-                    return Library.Flags[Element.Flag]
-                end
-
-                function Element:ResetToDefault()
-                    if Element.Default ~= nil then
-                        if Kind == "RangeSlider" then
-                            Element:Set(Element.Default.Min, Element.Default.Max)
-                        else
-                            Element:Set(Element.Default)
-                        end
-                    end
-                end
-
-                local OpenMenu = function()
-                    if Element.Disabled then
-                        return
-                    end
-
-                    Library:OpenContextMenu({
-                        {
-                            Name = "Reset to default",
-                            Disabled = not HasDefault(),
-                            Callback = function()
-                                Element:ResetToDefault()
-                            end
-                        },
-                        {
-                            Name = "Copy value",
-                            Callback = function()
-                                local Value = GetValue()
-
-                                if Value == nil then
-                                    return
-                                end
-
-                                local Text = ValueToText(Kind, Value)
-                                local _, Wrote = Library:CopyText(Text)
-
-                                Library:Notification({
-                                    Name = "Value copied",
-                                    Description = Wrote and Text or (Text .. " (kept inside the menu)"),
-                                    Duration = 2
-                                })
-                            end
-                        },
-                        {
-                            Name = "Paste value",
-                            Callback = function()
-                                local Text = Library:PasteText()
-                                local Parsed = Text and ParseClipboardValue(Kind, Text)
-
-                                if Parsed == nil then
-                                    Library:Notification({
-                                        Name = "Paste failed",
-                                        Description = "The clipboard has no valid value for this option.",
-                                        Type = "Warning",
-                                        Duration = 2.5
-                                    })
-                                    return
-                                end
-
-                                if Kind == "RangeSlider" then
-                                    Element:Set(Parsed.Min, Parsed.Max)
-                                else
-                                    Element:Set(Parsed)
-                                end
-                            end
-                        }
-                    })
-                end
-
-                -- the toggle row also holds the colorpicker / keybind buttons, so only the left part reacts
-                local IsOverAccessories = function()
-                    local Sub = Items["SubElements"] and Items["SubElements"].Instance
-                    return Sub ~= nil and IsOverInstance(Sub)
-                end
-
-                Root.InputBegan:Connect(function(Input)
-                    if Input.UserInputType ~= Enum.UserInputType.MouseButton2 then
-                        return
-                    end
-
-                    if IsOverAccessories() then
-                        return
-                    end
-
-                    task.wait(0.03)
-
-                    if Skip then
-                        Skip = false
-                        return
-                    end
-
-                    OpenMenu()
-                end)
-
-                -- sliders: right click on the bar resets instantly
-                local BarItem = Kind == "Slider" and Items["RealSliderOutline"] or Kind == "RangeSlider" and Items["Outline"] or nil
-
-                if BarItem and BarItem.Instance then
-                    BarItem.Instance.InputBegan:Connect(function(Input)
-                        if Input.UserInputType == Enum.UserInputType.MouseButton2 and not Element.Disabled then
-                            Skip = true
-                            Element:ResetToDefault()
-                        end
-                    end)
-                end
-            end
         end
 
         do
@@ -10298,9 +10303,36 @@ end
                         Library:HideTooltip()
                     end)
 
+                    local ResetArmed = false
+                    local ResetToken = 0
                     Button.MouseButton1Click:Connect(function()
-                        local Count = Section:ResetAll()
+                        if not ResetArmed then
+                            ResetArmed = true
+                            ResetToken += 1
+                            local Token = ResetToken
+                            local OriginalText = Button.Text
+                            Button.Text = "?"
+                            Icon.Visible = false
+                            Button.BackgroundTransparency = 0.15
+                            Button.BackgroundColor3 = Library.Theme["Accent"]
+                            Library:ShowTooltip("Click again to reset this section")
+                            task.delay(2.5, function()
+                                if ResetArmed and ResetToken == Token and Button.Parent then
+                                    ResetArmed = false
+                                    Button.Text = OriginalText
+                                    Icon.Visible = true
+                                    Button.BackgroundTransparency = 1
+                                end
+                            end)
+                            return
+                        end
 
+                        ResetArmed = false
+                        ResetToken += 1
+                        Button.Text = ""
+                        Icon.Visible = true
+                        Button.BackgroundTransparency = 1
+                        local Count = Section:ResetAll()
                         Library:Notification({
                             Name = "Section reset",
                             Description = Section.Name .. ": " .. Count .. " options restored.",
@@ -10496,6 +10528,38 @@ end
                     Section.Items["Section"].Instance.BackgroundTransparency = Transparency
                     Section.Items["Top"].Instance.BackgroundTransparency = Transparency
                 end
+            end
+        end
+
+        -- ---------- accent-linked menu glow ----------
+        Library.MenuGlowStrength = Library.MenuGlowStrength or 35
+        Library.MenuGlowEnabled = Library.MenuGlowEnabled ~= false
+        Library.SetMenuGlow = function(Self, Strength, Enabled)
+            Strength = math.clamp(tonumber(Strength) or 35, 0, 100)
+            Library.MenuGlowStrength = Strength
+            Library.MenuGlowEnabled = Enabled ~= false
+            local Window = Library.ActiveWindow
+            local Frame = Window and Window.Items and Window.Items.MainFrame and Window.Items.MainFrame.Instance
+            if not Frame then return end
+            local Accent = Library.Theme["Accent"] or Color3.fromRGB(180, 110, 255)
+            local GlowSpecs = {
+                { Name = "DogyAccentGlowWide", Thickness = 10 + Strength / 5, Transparency = 0.97 - Strength / 500 },
+                { Name = "DogyAccentGlowSoft", Thickness = 5 + Strength / 8, Transparency = 0.91 - Strength / 400 },
+                { Name = "DogyAccentGlow", Thickness = 1 + Strength / 25, Transparency = 0.84 - Strength / 180 },
+            }
+            for _, Spec in GlowSpecs do
+                local Glow = Frame:FindFirstChild(Spec.Name)
+                if not Glow then
+                    Glow = Instance.new("UIStroke")
+                    Glow.Name = Spec.Name
+                    Glow.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                    Glow.LineJoinMode = Enum.LineJoinMode.Round
+                    Glow.Parent = Frame
+                end
+                Glow.Color = Accent
+                Glow.Thickness = Spec.Thickness
+                Glow.Transparency = (not Library.MenuGlowEnabled or Strength <= 0) and 1 or math.clamp(Spec.Transparency, 0.05, 1)
+                Glow.Enabled = Library.MenuGlowEnabled and Strength > 0
             end
         end
 
@@ -11282,6 +11346,7 @@ end
             end
 
             do -- Menu
+                Library:LoadUIState()
                 local MenuSection = SettingsPage:Section({Name = "Menu", Icon = "settings", Side = 2})
 
                 MenuSection:Label({Name = "Menu Keybind"}):Keybind({
@@ -11345,6 +11410,151 @@ end
                     end
                 })
 
+                -- Related settings are grouped behind compact gear buttons.
+                local WatermarkObject = type(Window.Watermark) == "table" and Window.Watermark.SetFields and Window.Watermark or nil
+                local KeybindListObject = type(Window.KeybindList) == "table" and Window.KeybindList.SetFilter and Window.KeybindList or nil
+
+                if WatermarkObject then
+                    local WatermarkOptions = MenuSection:Label({Name = "Watermark Options"}):Options({Name = "Watermark", Icon = "settings", Width = 236})
+                    WatermarkOptions:Dropdown({
+                        Name = "Modules",
+                        Flag = "Menu/WatermarkFields",
+                        Items = Library.WatermarkFieldOrder or { "FPS", "Ping", "Place", "Session", "Time", "Date", "Player", "Players", "Memory" },
+                        Default = Library.UIState and Library.UIState.WatermarkFields or { "FPS", "Ping" },
+                        Multi = true,
+                        Callback = function(Value)
+                            if type(Value) == "table" then
+                                WatermarkObject:SetFields(Value)
+                                Library.UIState = Library.UIState or {}
+                                Library.UIState.WatermarkFields = Value
+                                Library:QueueSaveUIState()
+                            end
+                        end
+                    })
+                end
+
+                if KeybindListObject then
+                    local KeybindOptions = MenuSection:Label({Name = "Keybind List Options"}):Options({Name = "Keybind List", Icon = "settings", Width = 236})
+                    KeybindOptions:Dropdown({
+                        Name = "Display Mode",
+                        Flag = "Menu/KeybindListMode",
+                        Items = { "Only assigned", "Only active", "Show all" },
+                        Default = Library.UIState and Library.UIState.KeybindListMode or "Only assigned",
+                        Callback = function(Value)
+                            KeybindListObject:SetFilter(Value)
+                            Library.UIState = Library.UIState or {}
+                            Library.UIState.KeybindListMode = Value
+                            Library:QueueSaveUIState()
+                        end
+                    })
+                end
+
+                local InterfaceOptions = MenuSection:Label({Name = "Interface Options"}):Options({Name = "Interface", Icon = "settings", Width = 236})
+                InterfaceOptions:Toggle({
+                    Name = "Search Bar",
+                    Flag = "Menu/SearchBar",
+                    Default = not (Library.UIState and Library.UIState.SearchBar == false),
+                    Callback = function(Value)
+                        if Window.SetSearchVisible then Window:SetSearchVisible(Value) end
+                        Library.UIState = Library.UIState or {}
+                        Library.UIState.SearchBar = Value
+                        Library:QueueSaveUIState()
+                    end
+                })
+                InterfaceOptions:Slider({
+                    Name = "UI Scale",
+                    Flag = "Menu/UIScale",
+                    Min = 50, Max = 150, Step = 5,
+                    Default = math.floor(((Library.UIState and Library.UIState.Scale) or 1) * 100 + 0.5),
+                    Decimals = 0, Suffix = "%",
+                    Callback = function(Value)
+                        Library:SetUIScale(Value / 100)
+                        Library.UIState = Library.UIState or {}
+                        Library.UIState.Scale = Value / 100
+                        Library:QueueSaveUIState()
+                    end
+                })
+                InterfaceOptions:Slider({
+                    Name = "Window Opacity",
+                    Flag = "Menu/WindowOpacity",
+                    Min = 30, Max = 100, Step = 5,
+                    Default = math.floor((1 - ((Library.UIState and Library.UIState.Transparency) or 0)) * 100 + 0.5),
+                    Decimals = 0, Suffix = "%",
+                    Callback = function(Value)
+                        Library:SetWindowOpacity(1 - Value / 100)
+                        Library.UIState = Library.UIState or {}
+                        Library.UIState.Transparency = 1 - Value / 100
+                        Library:QueueSaveUIState()
+                    end
+                })
+                InterfaceOptions:Dropdown({
+                    Name = "Font",
+                    Flag = "Menu/Font",
+                    Items = Library.FontChoices,
+                    Default = (Library.UIState and Library.UIState.Font) or "Figtree",
+                    Callback = function(Value)
+                        Library:SetUIFont(Value)
+                        Library.UIState = Library.UIState or {}
+                        Library.UIState.Font = Value
+                        Library:QueueSaveUIState()
+                    end
+                })
+                InterfaceOptions:Dropdown({
+                    Name = "Notification Side",
+                    Flag = "Menu/NotificationSide",
+                    Items = { "Right", "Left" },
+                    Default = (Library.UIState and Library.UIState.NotifSide) or "Right",
+                    Callback = function(Value)
+                        Library:SetNotificationSide(Value)
+                        Library.UIState = Library.UIState or {}
+                        Library.UIState.NotifSide = Value
+                        Library:QueueSaveUIState()
+                    end
+                })
+                InterfaceOptions:Toggle({
+                    Name = "Theme Animation",
+                    Flag = "Menu/ThemeAnimation",
+                    Default = not (Library.UIState and Library.UIState.ThemeAnimation == false),
+                    Callback = function(Value)
+                        Library.ThemeAnimation = Value
+                        Library.UIState = Library.UIState or {}
+                        Library.UIState.ThemeAnimation = Value
+                        Library:QueueSaveUIState()
+                    end
+                })
+                InterfaceOptions:Toggle({
+                    Name = "Remember Position & Tab",
+                    Flag = "Menu/RememberUI",
+                    Default = not (Library.UIState and Library.UIState.RememberUI == false),
+                    Callback = function(Value)
+                        Library.UIState = Library.UIState or {}
+                        Library.UIState.RememberUI = Value
+                        Library:QueueSaveUIState()
+                    end
+                })
+
+                local GlowOptions = MenuSection:Label({Name = "Menu Glow"}):Options({Name = "Accent Glow", Icon = "settings", Width = 236})
+                GlowOptions:Toggle({
+                    Name = "Enabled",
+                    Flag = "Menu/GlowEnabled",
+                    Default = Library.MenuGlowEnabled ~= false,
+                    Callback = function(Value)
+                        Library.MenuGlowEnabled = Value
+                        if Library.SetMenuGlow then Library:SetMenuGlow(Library.MenuGlowStrength or 35, Value) end
+                    end
+                })
+                GlowOptions:Slider({
+                    Name = "Strength",
+                    Flag = "Menu/GlowStrength",
+                    Min = 0, Max = 100, Default = Library.MenuGlowStrength or 35,
+                    Suffix = "%", Decimals = 0,
+                    Callback = function(Value)
+                        Library.MenuGlowStrength = Value
+                        if Library.SetMenuGlow then Library:SetMenuGlow(Value, Library.MenuGlowEnabled ~= false) end
+                    end
+                })
+                Library:SetMenuGlow(Library.MenuGlowStrength or 35, Library.MenuGlowEnabled ~= false)
+
                 MenuSection:Divider()
 
                 MenuSection:SubButton({
@@ -11367,7 +11577,8 @@ end
                     Library:QueueSaveUIState()
                 end
 
-                local InterfaceSection = SettingsPage:Section({Name = "Watermark & Interface", Icon = "settings", Side = 2, ResetButton = true, Collapsed = true})
+                local InterfaceSection = SettingsPage:Section({Name = "Interface", Icon = "settings", Side = 2, ResetButton = true})
+                InterfaceSection.Items["Section"].Instance.Visible = false
 
                 InterfaceSection:Toggle({
                     Name = "Search Bar",
@@ -11458,7 +11669,8 @@ end
                     end
                 })
 
-                local OverlaySection = SettingsPage:Section({Name = "Watermark & Keybinds", Icon = "keyboard", Side = 2, ResetButton = true, Collapsed = true})
+                local OverlaySection = SettingsPage:Section({Name = "Overlays", Icon = "keyboard", Side = 2, ResetButton = true})
+                OverlaySection.Items["Section"].Instance.Visible = false
 
                 local WatermarkObject = type(Window.Watermark) == "table" and Window.Watermark.SetFields and Window.Watermark or nil
                 local KeybindListObject = type(Window.KeybindList) == "table" and Window.KeybindList.SetFilter and Window.KeybindList or nil
@@ -11471,12 +11683,12 @@ end
                     end
 
                     OverlaySection:Dropdown({
-                        Name = "Watermark Modules",
+                        Name = "Watermark Info",
                         Flag = "UI/WatermarkFields",
                         Items = Library.WatermarkFieldOrder or { "FPS", "Ping" },
                         Default = DefaultFields,
                         Multi = true,
-                        Tooltip = "Choose the information displayed on the watermark.",
+                        Tooltip = "Pick what the watermark shows: FPS, ping, place, session time...",
                         Callback = function(Value)
                             if type(Value) == "table" then
                                 WatermarkObject:SetFields(Value)
@@ -11493,7 +11705,7 @@ end
                         Flag = "UI/KeybindListMode",
                         Items = { "Only assigned", "Only active", "Show all" },
                         Default = State.KeybindListMode or "Only assigned",
-                        Tooltip = "Choose which keybinds appear in the list.",
+                        Tooltip = "Only assigned: binds that have a key. Only active: binds that are on right now.",
                         Callback = function(Value)
                             KeybindListObject:SetFilter(Value)
                             State.KeybindListMode = Value
