@@ -831,6 +831,10 @@ local Library = {
                     local Ok, Current = pcall(function() return Object[Name] end)
                     if Ok and type(Current) == 'number' then
                         if Stored[Name] == nil then Stored[Name] = Current end
+                        if Name == 'TextTransparency' then
+                            local Shown = Object:GetAttribute('MimiShownTransparency')
+                            if type(Shown) == 'number' then Stored[Name] = Shown end
+                        end
                         Goals[Name] = Visible and Stored[Name] or 1
                     end
                 end
@@ -3756,6 +3760,12 @@ Library.Watermark = function(Self, Params)
 
                 Items["Watermark"]:MakeDraggable()
 
+                Library:Create("UISizeConstraint", {
+                    Name = "\0",
+                    Parent = Items["Watermark"].Instance,
+                    MaxSize = Vector2.new(720, math.huge)
+                })
+
                 Library:Create("UICorner", {
                     Name = "\0",
                     Parent = Items["Watermark"].Instance
@@ -4192,7 +4202,7 @@ Library.Watermark = function(Self, Params)
                     Name = "\0",
                     Parent = Items["KeybindList"].Instance,
                     Visible = false,
-                    Size = UDim2.new(1, 0, 0, 0),
+                    Size = UDim2.new(0, 220, 0, 0),
                     Position = UDim2.new(0, 0, 0, 35),
                     BorderSizePixel = 0,
                     AutomaticSize = Enum.AutomaticSize.Y,
@@ -4227,6 +4237,12 @@ Library.Watermark = function(Self, Params)
                     Parent = Items["Content"].Instance,
                     TopRightRadius = UDim.new(0, 0),
                     TopLeftRadius = UDim.new(0, 0)
+                })
+
+                Library:Create("UISizeConstraint", {
+                    Name = "\0",
+                    Parent = Items["KeybindList"].Instance,
+                    MaxSize = Vector2.new(220, math.huge)
                 })
 
                 Items["KeybindList"]:MakeDraggable(Items["Top"])
@@ -4367,6 +4383,10 @@ Library.Watermark = function(Self, Params)
                     KeybindList:Refresh()
 
                     local RowInstance = RowItems["NewKey"].Instance
+                    -- Read by Library:AnimatedVisibility so a row that is hidden while the
+                    -- list fades never gets stuck invisible (or a shown one stuck hidden).
+                    RowItems["Text"].Instance:SetAttribute("MimiShownTransparency", Show and 0 or 1)
+                    RowItems["Key"].Instance:SetAttribute("MimiShownTransparency", Show and 0 or 1)
                     local Lit = NewKey.Bound and NewKey.Active
                     local Color = Lit and Library.Theme["Text"] or Library.Theme["Inactive Text"]
 
