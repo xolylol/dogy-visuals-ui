@@ -40,7 +40,7 @@ local GuiInset = GuiService:GetGuiInset().Y
 local Mouse = cloneref(LocalPlayer:GetMouse())
 
 local Library = {
-    BuildVersion = "2026.10.29-v31-mimisense-attached-glow-dropdown",
+    BuildVersion = "2026.10.30-v32-mimisense-glow-fade-fix",
     Flags = { },
 
     MenuKeybind = tostring(Enum.KeyCode.X),
@@ -846,7 +846,7 @@ local Library = {
 
         -- Glow opacity follows exactly the same animation as its overlay.
         if Library.SetOverlayGlowVisibility then
-            Library:SetOverlayGlowVisibility(RootObject, Visible, Duration)
+            Library:SetOverlayGlowVisibility(RootObject, Visible, Duration, Info)
         end
         if not Visible then
             task.delay(Duration + 0.01, function()
@@ -5335,7 +5335,11 @@ Library.Watermark = function(Self, Params)
 
                 Window.IsOpen = Bool
                 if Library.SetOverlayGlowVisibility then
-                    Library:SetOverlayGlowVisibility(Items['MainFrame'].Instance, Bool, 0.25)
+                    -- Same time/easing as FadeDescendants so glow and window fade as one.
+                    local GlowInfo = TweenInfo.new(Library.Animation.Time,
+                        Enum.EasingStyle[Library.Animation.Style],
+                        Enum.EasingDirection[Library.Animation.Direction])
+                    Library:SetOverlayGlowVisibility(Items['MainFrame'].Instance, Bool, nil, GlowInfo)
                 end
                 Items["MainFrame"]:FadeDescendants(Bool, function()
                     Debounce = false
@@ -11125,6 +11129,86 @@ end
             return Targets
         end
 
+        -- v32: these two were used by the code but never defined, which made
+        -- SetMenuGlow throw ("attempt to index nil") and abort Window:Watermark /
+        -- Window:Init (empty window), and left glow without any fade animation.
+        Library.OverlayVisibilityStates = Library.OverlayVisibilityStates
+            or setmetatable({}, {__mode = 'k'})
+
+        -- Should the glow of this overlay be visible right now (setting + own state + parent window)?
+        local function GlowShouldShow(Root)
+            if Library.MenuGlowEnabled == false then return false end
+            if Library.OverlayVisibilityStates[Root] == false then return false end
+            local Window = Library.ActiveWindow
+            local MainItem = Window and Window.Items and Window.Items.MainFrame
+            local Main = MainItem and MainItem.Instance
+            -- ESP preview lives inside MainFrame: it must go away with the window.
+            if Main and Root ~= Main and Root:IsDescendantOf(Main) and Window.IsOpen == false then
+                return false
+            end
+            return true
+        end
+
+        -- Fade one glow image. Info == nil -> instant. Cancels any tween in flight,
+        -- so rapid open/close never snaps.
+        local function AnimateGlow(Entry, Show, Info)
+            local Image = Entry and Entry.Image
+            if not Image or not Image.Parent then return end
+            Entry.Token = (Entry.Token or 0) + 1
+            local Token = Entry.Token
+            if Entry.Tween then
+                pcall(function() Entry.Tween:Cancel() end)
+                Entry.Tween = nil
+            end
+            local Goal = Show and (1 - Library.MenuGlowStrength / 100) or 1
+            Entry.Desired = Show
+            if not Info then
+                Entry.IsAnimating = false
+                Image.ImageTransparency = Goal
+                Image.Visible = Show
+                return
+            end
+            if Show then Image.Visible = true end
+            local Ok, Tween = pcall(TweenService.Create, TweenService, Image, Info, {ImageTransparency = Goal})
+            if not Ok or not Tween then
+                Entry.IsAnimating = false
+                Image.ImageTransparency = Goal
+                Image.Visible = Show
+                return
+            end
+            Entry.Tween = Tween
+            Entry.IsAnimating = true
+            Tween.Completed:Connect(function()
+                if Entry.Token ~= Token then return end
+                Entry.Tween = nil
+                Entry.IsAnimating = false
+                if not Show then Image.Visible = false end
+            end)
+            Tween:Play()
+        end
+
+        -- Public: called together with the overlay's own fade (same Info), so the
+        -- glow becomes transparent exactly when the overlay does and never "tears".
+        Library.SetOverlayGlowVisibility = function(Self, Root, Visible, Duration, Info)
+            if type(Root) == 'table' then Root = Root.Instance end
+            if not Root then return end
+            Library.OverlayVisibilityStates[Root] = Visible == true
+            if not Info and type(Duration) == 'number' and Duration > 0 then
+                Info = TweenInfo.new(Duration, Enum.EasingStyle.Quart,
+                    Visible and Enum.EasingDirection.Out or Enum.EasingDirection.In)
+            end
+            local Entry = Library.OuterGlowMap[Root]
+            if Entry then
+                AnimateGlow(Entry, Visible == true and GlowShouldShow(Root), Info)
+            end
+            -- Overlays nested in this one (ESP preview inside the window) follow it.
+            for Other, OtherEntry in pairs(Library.OuterGlowMap) do
+                if Other ~= Root and Other.Parent and Other:IsDescendantOf(Root) then
+                    AnimateGlow(OtherEntry, Other.Visible and GlowShouldShow(Other), Info)
+                end
+            end
+        end
+
         Library.SetMenuGlow = function(Self, _Ignored, Enabled)
             local WasEnabled = Library.MenuGlowEnabled == true
             Library.MenuGlowEnabled = Enabled ~= false
@@ -11193,21 +11277,15 @@ end
                 local Image = Entry.Image
                 Image.ImageColor3 = Library.Theme['Accent']
                 Entry.Sync()
+                local Show = Root.Visible and GlowShouldShow(Root) or false
                 if Entry.JustCreated then
                     Entry.JustCreated = nil
-                    local Desired = Library.MenuGlowEnabled and Root.Visible
-                        and Library.OverlayVisibilityStates[Root] ~= false
-                    Entry.Desired = Desired
-                    Image.Visible = Desired
-                    Image.ImageTransparency = Desired and (1-Library.MenuGlowStrength/100) or 1
+                    AnimateGlow(Entry, Show, nil)
                 elseif WasToggled then
-                    Library:SetOverlayGlowVisibility(Root,
-                        Root.Visible and Library.OverlayVisibilityStates[Root] ~= false, 0.26)
+                    AnimateGlow(Entry, Show, TweenInfo.new(0.26, Enum.EasingStyle.Quart,
+                        Show and Enum.EasingDirection.Out or Enum.EasingDirection.In))
                 elseif not Entry.IsAnimating then
-                    local Desired = Library.MenuGlowEnabled and Root.Visible
-                        and Library.OverlayVisibilityStates[Root] ~= false
-                    Image.Visible = Desired
-                    Image.ImageTransparency = Desired and (1-Library.MenuGlowStrength/100) or 1
+                    AnimateGlow(Entry, Show, nil)
                 end
             end
         end
