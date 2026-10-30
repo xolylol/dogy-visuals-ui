@@ -40,7 +40,7 @@ local GuiInset = GuiService:GetGuiInset().Y
 local Mouse = cloneref(LocalPlayer:GetMouse())
 
 local Library = {
-    BuildVersion = "2026.10.30-v32-mimisense-glow-fade-fix",
+    BuildVersion = "2026.10.30-v32b-mimisense-glow-fade-notif",
     Flags = { },
 
     MenuKeybind = tostring(Enum.KeyCode.X),
@@ -4524,7 +4524,7 @@ Library.Watermark = function(Self, Params)
             })
             Items.Card = Library:Create("Frame", {
                 Name = "MimisenseNotificationCard", Parent = Items.Holder.Instance,
-                BorderSizePixel = 0, ClipsDescendants = true,
+                BorderSizePixel = 0, ClipsDescendants = false,
                 Position = UDim2.fromOffset(SlideOffset, 0), Size = UDim2.fromScale(1, 1),
                 BackgroundTransparency = 0, BackgroundColor3 = Library.Theme["Background"]
             }):AddToTheme({BackgroundColor3 = "Background"})
@@ -4537,6 +4537,11 @@ Library.Watermark = function(Self, Params)
                 Color = Library.Theme["Outline"], Transparency = 0,
                 Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border
             }):AddToTheme({Color = "Outline"})
+
+            local GlowImage, GlowGoal
+            if Library.AttachNotificationGlow then
+                GlowImage, GlowGoal = Library:AttachNotificationGlow(Items.Card.Instance)
+            end
 
             -- Small emblem box: uses the Tab surface and leaves the icon untinted.
             if ShowIcon then
@@ -4638,6 +4643,9 @@ Library.Watermark = function(Self, Params)
             task.spawn(function()
                 if not Alive() then return end
                 TweenService:Create(Items.Card.Instance, InInfo, {Position = UDim2.fromOffset(0, 0)}):Play()
+                if GlowImage and GlowImage.Parent then
+                    TweenService:Create(GlowImage, InInfo, {ImageTransparency = GlowGoal}):Play()
+                end
                 Notification:Restart()
                 local Last = os.clock()
                 while Alive() and not Notification.Closing and Notification.Elapsed < Notification.Duration do
@@ -4653,6 +4661,9 @@ Library.Watermark = function(Self, Params)
                 TweenService:Create(Items.Card.Instance, OutInfo, {
                     Position = UDim2.fromOffset(SlideOffset, 0)
                 }):Play()
+                if GlowImage and GlowImage.Parent then
+                    TweenService:Create(GlowImage, OutInfo, {ImageTransparency = 1}):Play()
+                end
                 task.wait(OutInfo.Time)
                 if Alive() then Items.Holder.Instance:Destroy() end
             end)
@@ -11209,6 +11220,30 @@ end
             end
         end
 
+        -- v32: glow for notification cards. Lives inside the card (which no longer
+        -- clips), so it slides with it; the caller fades it with the card tweens.
+        Library.AttachNotificationGlow = function(Self, Card)
+            if Library.MenuGlowEnabled == false or Library.MenuGlowStrength <= 0 then return nil end
+            local Pad = math.min(Library.MenuGlowPadding, 24)
+            local Image = Instance.new('ImageLabel')
+            Image.Name = 'MimisenseNotificationGlow'
+            Image.BackgroundTransparency = 1
+            Image.BorderSizePixel = 0
+            Image.Active = false
+            Image.Selectable = false
+            Image.ZIndex = -1
+            Image.Image = ResolveSoftGlow()
+            Image.ImageColor3 = Library.Theme['Accent']
+            Image.ImageTransparency = 1
+            Image.ScaleType = Enum.ScaleType.Slice
+            Image.SliceCenter = Rect.new(32,32,96,96)
+            Image.SliceScale = 1
+            Image.Position = UDim2.fromOffset(-Pad,-Pad)
+            Image.Size = UDim2.new(1,Pad*2,1,Pad*2)
+            Image.Parent = Card
+            return Image, 1 - Library.MenuGlowStrength / 100
+        end
+
         Library.SetMenuGlow = function(Self, _Ignored, Enabled)
             local WasEnabled = Library.MenuGlowEnabled == true
             Library.MenuGlowEnabled = Enabled ~= false
@@ -11227,7 +11262,12 @@ end
                     Image.BorderSizePixel = 0
                     Image.Active = false
                     Image.Selectable = false
-                    Image.ZIndex = -1
+                    -- Overlays with AutomaticSize (watermark, keybind list) must NOT
+                    -- own the glow: its size depends on their size, which made them
+                    -- grow forever and stretch across the screen. Those get a detached
+                    -- follower in the holder; fixed-size windows keep the attached glow.
+                    local Detached = Host ~= Root
+                    Image.ZIndex = Detached and (Root.ZIndex - 1) or -1
                     Image.Image = ResolveSoftGlow()
                     Image.ImageColor3 = Library.Theme['Accent']
                     Image.ImageTransparency = 1 - Library.MenuGlowStrength / 100
@@ -11236,32 +11276,33 @@ end
                     Image.SliceScale = 1
                     -- Parent to the actual moving frame (not its ScreenGui).
                     -- No absolute-coordinate updates on every drag frame.
-                    Image.Parent = Host
+                    Image.Parent = Detached and Library.Holder.Instance or Host
                     Entry = {Image=Image, Host=Host}
                     Library.OuterGlowMap[Root] = Entry
 
                     local function SyncGeometry()
                         if not Root.Parent or not Host.Parent or not Image.Parent then return end
                         local Pad = Library.MenuGlowPadding
-                        -- When Host == Root, normalized scale tracks both position
-                        -- AND size automatically without any RenderStepped handler.
-                        if Host == Root then
+                        if not Detached then
+                            -- Host == Root: normalized scale tracks position AND size
+                            -- automatically, no per-frame handler needed.
                             Image.Position = UDim2.fromOffset(-Pad,-Pad)
                             Image.Size = UDim2.new(1,Pad*2,1,Pad*2)
                         else
-                            -- Watermark/Hotkeys have AutomaticSize layouts.
-                            -- This geometry is only their LOCAL relative offset;
-                            -- dragging the parent moves both in the same frame.
-                            local Delta = Root.AbsolutePosition - Host.AbsolutePosition
-                            Image.Position = UDim2.fromOffset(math.floor(Delta.X-Pad+0.5),math.floor(Delta.Y-Pad+0.5))
+                            local Origin = Library.Holder.Instance.AbsolutePosition
+                            local Position = Root.AbsolutePosition - Origin
                             local Size = Root.AbsoluteSize
+                            Image.Position = UDim2.fromOffset(math.floor(Position.X-Pad+0.5),math.floor(Position.Y-Pad+0.5))
                             Image.Size = UDim2.fromOffset(math.max(1,math.floor(Size.X+2*Pad+0.5)),math.max(1,math.floor(Size.Y+2*Pad+0.5)))
                         end
                     end
                     Entry.Sync = SyncGeometry
-                    if Host ~= Root then
+                    if Detached then
+                        Library:Connect(Root:GetPropertyChangedSignal('AbsolutePosition'), SyncGeometry)
                         Library:Connect(Root:GetPropertyChangedSignal('AbsoluteSize'), SyncGeometry)
-                        Library:Connect(Host:GetPropertyChangedSignal('Size'), SyncGeometry)
+                        Library:Connect(Root:GetPropertyChangedSignal('Visible'), function()
+                            if not Root.Visible then Image.Visible = false end
+                        end)
                     end
                     Library:Connect(Root.Destroying, function()
                         Library.OuterGlowMap[Root] = nil
