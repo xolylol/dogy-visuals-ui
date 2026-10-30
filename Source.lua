@@ -761,6 +761,10 @@ local Library = {
             return { "TextTransparency", "BackgroundTransparency" }
         elseif Object:IsA("UIStroke") then
             return { "Transparency" }
+        elseif Object:IsA("ViewportFrame") then
+            -- ImageTransparency fades the rendered 3D content (the character model),
+            -- otherwise it stays opaque while the rest of the window fades out.
+            return { "BackgroundTransparency", "ImageTransparency" }
         end
     end
 
@@ -4698,7 +4702,7 @@ Library.Watermark = function(Self, Params)
             Params = Params or { }
 
             local ESPPreview = {
-                Name = Params.Name or Params.name or "ESP Preview",
+                Name = "ESP Preview", -- always, ignores Params.Name
                 Icon = Params.Icon or Params.icon or "eye",
 
                 Window = Self,
@@ -5024,8 +5028,9 @@ Library.Watermark = function(Self, Params)
                 end
             end
 
-            function ESPPreview:SetText(Text)
-                ESPPreview.Name = tostring(Text)
+            function ESPPreview:SetText(_Text)
+                -- title is locked to "ESP Preview"
+                ESPPreview.Name = "ESP Preview"
                 Items["Text"].Instance.Text = ESPPreview.Name
             end
 
