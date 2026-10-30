@@ -768,6 +768,50 @@ local Library = {
         end
     end
 
+    -- Keybind-style "shell" for everything the user can type into / change
+    -- (search bar, slider values, ...): outlined rounded chip, accent outline on focus.
+    -- Box = TextBox item or instance.
+    Library.StyleEditable = function(Self, Box, Params)
+        Params = Params or { }
+        local Object = Box.Instance or Box
+        if not Object or Object:GetAttribute("MimiEditableChip") then return end
+        Object:SetAttribute("MimiEditableChip", true)
+
+        Object.BackgroundTransparency = 0
+        Object.BorderSizePixel = 0
+        local Wrapped = Box.Instance and Box or nil
+        if Wrapped then Wrapped:AddToTheme({BackgroundColor3 = "Background"}) else Object.BackgroundColor3 = Library.Theme["Background"] end
+
+        Library:Create("UICorner", {Name = "\0", Parent = Object, CornerRadius = UDim.new(0, Params.Radius or 4)})
+        local Stroke = Library:Create("UIStroke", {
+            Name = "\0", Parent = Object, Color = Library.Theme["Outline"],
+            ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+        }):AddToTheme({Color = "Outline"})
+        Library:Create("UIPadding", {
+            Name = "\0", Parent = Object,
+            PaddingLeft = UDim.new(0, Params.PaddingX or 6), PaddingRight = UDim.new(0, Params.PaddingX or 6)
+        })
+        if Params.MinWidth then
+            Library:Create("UISizeConstraint", {Name = "\0", Parent = Object, MinSize = Vector2.new(Params.MinWidth, 0), MaxSize = Vector2.new(Params.MaxWidth or 1000, 1000)})
+        end
+
+        Library:Connect(Object.Focused, function()
+            Library:Tween({Color = Library.Theme["Accent"]}, nil, Stroke.Instance)
+        end)
+        Library:Connect(Object.FocusLost, function()
+            Library:Tween({Color = Library.Theme["Outline"]}, nil, Stroke.Instance)
+        end)
+        Library:Connect(Object.MouseEnter, function()
+            if not Object:IsFocused() then
+                Library:Tween({BackgroundColor3 = Library.Theme["Hovered Element"]}, nil, Object)
+            end
+        end)
+        Library:Connect(Object.MouseLeave, function()
+            Library:Tween({BackgroundColor3 = Library.Theme["Background"]}, nil, Object)
+        end)
+        return Stroke
+    end
+
     Library.Fade = function(Self, Property, Visibility, IsRawItem)
         local Object = Self.Instance or IsRawItem
 
@@ -4840,6 +4884,7 @@ Library.Watermark = function(Self, Params)
             ViewportCamera.Parent = Viewport.Instance
 
             local ViewportModel
+            local StartIdle
             local ESPVisibilityState = {}
             local Zoom = 6
             local MinZoom = 2
@@ -4865,6 +4910,57 @@ Library.Watermark = function(Self, Params)
             end
 
             ESPVisibilityState.Visible = true
+
+            -- ---- idle pose: the preview character just stands (looping idle animation) ----
+            local IdleTrack
+            local DefaultIdle = {
+                [Enum.HumanoidRigType.R15] = "rbxassetid://507766666",
+                [Enum.HumanoidRigType.R6] = "rbxassetid://180435571"
+            }
+
+            local ResolveIdleId = function(SourceCharacter, Humanoid)
+                -- use the idle your game/character actually plays (Animate script), else the Roblox default
+                local Animate = SourceCharacter and SourceCharacter:FindFirstChild("Animate")
+                local IdleFolder = Animate and Animate:FindFirstChild("idle")
+                local Anim = IdleFolder and (IdleFolder:FindFirstChild("Animation1") or IdleFolder:FindFirstChildOfClass("Animation"))
+                if Anim and Anim.AnimationId ~= "" then
+                    return Anim.AnimationId
+                end
+                return DefaultIdle[Humanoid.RigType] or DefaultIdle[Enum.HumanoidRigType.R15]
+            end
+
+            function StartIdle()
+                if IdleTrack then
+                    pcall(function() IdleTrack:Stop(0) IdleTrack:Destroy() end)
+                    IdleTrack = nil
+                end
+                local Model = ViewportModel
+                if not Model or ESPPreview.IdleEnabled == false then return end
+                local Humanoid = Model:FindFirstChildOfClass("Humanoid")
+                if not Humanoid then return end
+
+                -- drop the frozen pose copied from the live character (jump, run, ...)
+                for _, Joint in Model:GetDescendants() do
+                    if Joint:IsA("Motor6D") then Joint.Transform = CFrame.new() end
+                end
+
+                local Animator = Humanoid:FindFirstChildOfClass("Animator") or Instance.new("Animator", Humanoid)
+                local Animation = Instance.new("Animation")
+                Animation.AnimationId = ResolveIdleId(ESPPreview.SourceCharacter, Humanoid)
+
+                local Ok, Track = pcall(function() return Animator:LoadAnimation(Animation) end)
+                if not Ok or not Track then return end
+                Track.Looped = true
+                Track.Priority = Enum.AnimationPriority.Core
+                IdleTrack = Track
+                Track:Play(0)
+            end
+
+            ESPPreview.IdleEnabled = true
+            function ESPPreview:SetIdle(Bool)
+                ESPPreview.IdleEnabled = Bool ~= false
+                StartIdle()
+            end
 
             local SetupModel = function(Character)
                 if ViewportModel then
@@ -4892,7 +4988,8 @@ Library.Watermark = function(Self, Params)
                     if Value:IsA("LocalScript") or Value:IsA("Script") then
                         Value:Destroy()
                     elseif Value:IsA("BasePart") then
-                        Value.Anchored = true
+                        -- only the root stays anchored: anchored limbs would ignore the idle animation
+                        Value.Anchored = (Value.Name == "HumanoidRootPart")
                         Value.CanCollide = false
                     end
                 end
@@ -4909,6 +5006,9 @@ Library.Watermark = function(Self, Params)
 
                 ViewportCamera.CameraSubject = ViewportModel
                 ESPPreview.Player = ViewportModel
+
+                ESPPreview.SourceCharacter = Character
+                StartIdle()
             end
 
             if LocalCharacter then
@@ -5016,6 +5116,7 @@ Library.Watermark = function(Self, Params)
                 ESPVisibilityState.Visible = Bool
                 if Bool and ViewportModel and ViewportModel.Parent ~= Viewport.Instance then
                     ViewportModel.Parent = Viewport.Instance
+                    StartIdle()
                 end
                 Library:AnimatedVisibility(Items['ESPPreview'], Bool, ESPVisibilityState, ESPScale)
                 if not Bool then
@@ -7723,14 +7824,16 @@ end
                     PlaceholderText = "0",
                     PlaceholderColor3 = Library.Theme["Inactive Text"],
                     AnchorPoint = Vector2.new(1, 0),
-                    Position = UDim2.new(1, 0, 0, 0),
-                    Size = UDim2.new(0, 78, 0, 18),
+                    Position = UDim2.new(1, 0, 0, 1),
+                    Size = UDim2.new(0, 0, 0, 16),
+                    AutomaticSize = Enum.AutomaticSize.X,
                     BackgroundTransparency = 1,
-                    TextXAlignment = Enum.TextXAlignment.Right,
+                    TextXAlignment = Enum.TextXAlignment.Center,
                     BorderSizePixel = 0,
                     ClearTextOnFocus = false,
                     MultiLine = false
                 }):AddToTheme({TextColor3 = 'Inactive Text', PlaceholderColor3 = 'Inactive Text'})
+                Library:StyleEditable(Items["Value"], {MinWidth = 36, MaxWidth = 110})
 
                 Slider.Items = Items
             end
@@ -10161,14 +10264,16 @@ end
                     PlaceholderText = "min - max",
                     PlaceholderColor3 = Library.Theme["Inactive Text"],
                     AnchorPoint = Vector2.new(1, 0),
-                    Position = UDim2.new(1, 0, 0, 0),
-                    Size = UDim2.new(0, 120, 0, 18),
+                    Position = UDim2.new(1, 0, 0, 1),
+                    Size = UDim2.new(0, 0, 0, 16),
+                    AutomaticSize = Enum.AutomaticSize.X,
                     BackgroundTransparency = 1,
-                    TextXAlignment = Enum.TextXAlignment.Right,
+                    TextXAlignment = Enum.TextXAlignment.Center,
                     BorderSizePixel = 0,
                     ClearTextOnFocus = false,
                     MultiLine = false
                 }):AddToTheme({TextColor3 = "Inactive Text", PlaceholderColor3 = "Inactive Text"})
+                Library:StyleEditable(Items["Value"], {MinWidth = 60, MaxWidth = 140})
 
                 Range.Items = Items
             end
@@ -11433,18 +11538,26 @@ end
                 local Items = Window.Items
                 local MainFrame = Items.MainFrame.Instance
 
-                Items["SearchBar"] = Library:Create("Frame", {
+                -- Search shell = same look as a keybind chip (Background fill, Outline stroke, rounded),
+                -- so it is obvious that it is an editable field. Every inner offset comes from the
+                -- constants below and the inset equals the section header inset (12) -> icon and
+                -- text line up with the section titles underneath.
+                local Inset, IconSize, Gap, RightReserve = 12, 14, 8, 66
+
+                Items["SearchBar"] = Library:Create("TextButton", {
                     Name = "\0",
                     Parent = MainFrame,
+                    Text = "",
+                    AutoButtonColor = false,
                     Position = UDim2.new(0, 10, 0, 62),
                     Size = UDim2.new(1, -20, 0, 28),
                     BorderSizePixel = 0,
-                    BackgroundColor3 = Library.Theme["Tab"]
-                }):AddToTheme({BackgroundColor3 = "Tab"})
+                    BackgroundColor3 = Library.Theme["Background"]
+                }):AddToTheme({BackgroundColor3 = "Background"})
 
-                Library:Create("UICorner", { Name = "\0", Parent = Items["SearchBar"].Instance, CornerRadius = UDim.new(0, 6) })
+                Library:Create("UICorner", { Name = "\0", Parent = Items["SearchBar"].Instance, CornerRadius = UDim.new(0, 5) })
 
-                Library:Create("UIStroke", {
+                local SearchStroke = Library:Create("UIStroke", {
                     Name = "\0",
                     Parent = Items["SearchBar"].Instance,
                     Color = Library.Theme["Outline"],
@@ -11455,8 +11568,8 @@ end
                     Name = "\0",
                     Parent = Items["SearchBar"].Instance,
                     AnchorPoint = Vector2.new(0, 0.5),
-                    Position = UDim2.new(0, 9, 0.5, 0),
-                    Size = UDim2.new(0, 15, 0, 15),
+                    Position = UDim2.new(0, Inset, 0.5, 0),
+                    Size = UDim2.new(0, IconSize, 0, IconSize),
                     BackgroundTransparency = 1,
                     BorderSizePixel = 0,
                     ImageColor3 = Library.Theme["Inactive Text"]
@@ -11471,8 +11584,9 @@ end
                     FontFace = Library.Font,
                     TextSize = Library.FontSize,
                     Parent = Items["SearchBar"].Instance,
-                    Position = UDim2.new(0, 32, 0, 0),
-                    Size = UDim2.new(1, -62, 1, 0),
+                    AnchorPoint = Vector2.new(0, 0.5),
+                    Position = UDim2.new(0, Inset + IconSize + Gap, 0.5, 0),
+                    Size = UDim2.new(1, -(Inset + IconSize + Gap + RightReserve), 1, 0),
                     BackgroundTransparency = 1,
                     BorderSizePixel = 0,
                     TextColor3 = Library.Theme["Text"],
@@ -11480,33 +11594,111 @@ end
                     PlaceholderColor3 = Library.Theme["Inactive Text"],
                     Text = "",
                     ClearTextOnFocus = false,
-                    TextXAlignment = Enum.TextXAlignment.Left
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextTruncate = Enum.TextTruncate.AtEnd
                 }):AddToTheme({TextColor3 = "Text", PlaceholderColor3 = "Inactive Text"})
 
+                -- "Ctrl F" hint, drawn exactly like a keybind chip
+                Items["SearchHint"] = Library:Create("TextLabel", {
+                    Name = "\0",
+                    FontFace = Library.Font,
+                    TextSize = Library.FontSize - 1,
+                    Parent = Items["SearchBar"].Instance,
+                    AnchorPoint = Vector2.new(1, 0.5),
+                    Position = UDim2.new(1, -8, 0.5, 0),
+                    Size = UDim2.new(0, 0, 0, 16),
+                    AutomaticSize = Enum.AutomaticSize.X,
+                    Text = "Ctrl F",
+                    TextColor3 = Library.Theme["Inactive Text"],
+                    BorderSizePixel = 0,
+                    BackgroundColor3 = Library.Theme["Tab"]
+                }):AddToTheme({BackgroundColor3 = "Tab", TextColor3 = "Inactive Text"})
+
+                Library:Create("UICorner", { Name = "\0", Parent = Items["SearchHint"].Instance, CornerRadius = UDim.new(0, 4) })
+                Library:Create("UIStroke", {
+                    Name = "\0", Parent = Items["SearchHint"].Instance, Color = Library.Theme["Outline"],
+                    ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                }):AddToTheme({Color = "Outline"})
+                Library:Create("UIPadding", {
+                    Name = "\0", Parent = Items["SearchHint"].Instance,
+                    PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6)
+                })
+
+                -- clear button takes the hint's place while there is text
                 Items["SearchClear"] = Library:Create("TextButton", {
                     Name = "\0",
                     FontFace = Library.Font,
-                    TextSize = Library.FontSize + 2,
+                    TextSize = Library.FontSize - 1,
                     Parent = Items["SearchBar"].Instance,
                     AnchorPoint = Vector2.new(1, 0.5),
-                    Position = UDim2.new(1, -6, 0.5, 0),
-                    Size = UDim2.new(0, 22, 0, 22),
-                    BackgroundTransparency = 1,
+                    Position = UDim2.new(1, -8, 0.5, 0),
+                    Size = UDim2.new(0, 0, 0, 16),
+                    AutomaticSize = Enum.AutomaticSize.X,
                     BorderSizePixel = 0,
                     AutoButtonColor = false,
-                    Text = "x",
+                    Text = "Clear",
                     Visible = false,
-                    TextColor3 = Library.Theme["Inactive Text"]
-                }):AddToTheme({TextColor3 = "Inactive Text"})
+                    TextColor3 = Library.Theme["Inactive Text"],
+                    BackgroundColor3 = Library.Theme["Tab"]
+                }):AddToTheme({TextColor3 = "Inactive Text", BackgroundColor3 = "Tab"})
+
+                Library:Create("UICorner", { Name = "\0", Parent = Items["SearchClear"].Instance, CornerRadius = UDim.new(0, 4) })
+                Library:Create("UIStroke", {
+                    Name = "\0", Parent = Items["SearchClear"].Instance, Color = Library.Theme["Outline"],
+                    ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                }):AddToTheme({Color = "Outline"})
+                Library:Create("UIPadding", {
+                    Name = "\0", Parent = Items["SearchClear"].Instance,
+                    PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6)
+                })
+
+                local function RefreshSearchChips()
+                    local Input = Items["SearchInput"].Instance
+                    local HasText = Input.Text ~= ""
+                    Items["SearchClear"].Instance.Visible = HasText
+                    Items["SearchHint"].Instance.Visible = (not HasText) and (not Input:IsFocused())
+                end
 
                 Library:Connect(Items["SearchInput"].Instance:GetPropertyChangedSignal("Text"), function()
-                    local Text = Items["SearchInput"].Instance.Text
-                    Items["SearchClear"].Instance.Visible = Text ~= ""
-                    Library:SearchMenu(Text)
+                    RefreshSearchChips()
+                    Library:SearchMenu(Items["SearchInput"].Instance.Text)
+                end)
+
+                -- accent outline + accent icon while typing, hover tint otherwise
+                Library:Connect(Items["SearchInput"].Instance.Focused, function()
+                    Library:Tween({Color = Library.Theme["Accent"]}, nil, SearchStroke.Instance)
+                    if Items["SearchIcon"] and Items["SearchIcon"].Instance.Parent then
+                        Library:Tween({ImageColor3 = Library.Theme["Accent"]}, nil, Items["SearchIcon"].Instance)
+                    end
+                    RefreshSearchChips()
+                end)
+                Library:Connect(Items["SearchInput"].Instance.FocusLost, function(_, Input)
+                    Library:Tween({Color = Library.Theme["Outline"]}, nil, SearchStroke.Instance)
+                    if Items["SearchIcon"] and Items["SearchIcon"].Instance.Parent then
+                        Library:Tween({ImageColor3 = Library.Theme["Inactive Text"]}, nil, Items["SearchIcon"].Instance)
+                    end
+                    -- Esc = clear and leave the field
+                    if Input and Input.KeyCode == Enum.KeyCode.Escape then
+                        Items["SearchInput"].Instance.Text = ""
+                    end
+                    RefreshSearchChips()
+                end)
+                Library:Connect(Items["SearchBar"].Instance.MouseEnter, function()
+                    if not Items["SearchInput"].Instance:IsFocused() then
+                        Library:Tween({BackgroundColor3 = Library.Theme["Hovered Element"]}, nil, Items["SearchBar"].Instance)
+                    end
+                end)
+                Library:Connect(Items["SearchBar"].Instance.MouseLeave, function()
+                    Library:Tween({BackgroundColor3 = Library.Theme["Background"]}, nil, Items["SearchBar"].Instance)
+                end)
+                -- click anywhere on the shell focuses the field
+                Library:Connect(Items["SearchBar"].Instance.MouseButton1Click, function()
+                    Items["SearchInput"].Instance:CaptureFocus()
                 end)
 
                 Items["SearchClear"].Instance.MouseButton1Click:Connect(function()
                     Items["SearchInput"].Instance.Text = ""
+                    Items["SearchInput"].Instance:CaptureFocus()
                 end)
 
                 function Window:SetSearchVisible(Bool)
