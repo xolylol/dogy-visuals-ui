@@ -40,7 +40,7 @@ local GuiInset = GuiService:GetGuiInset().Y
 local Mouse = cloneref(LocalPlayer:GetMouse())
 
 local Library = {
-    BuildVersion = "2026.10.30-v32b-mimisense-glow-fade-notif",
+    BuildVersion = "2026.10.31-v33-media-theme-bg-esp-live",
     Flags = { },
 
     MenuKeybind = tostring(Enum.KeyCode.X),
@@ -350,6 +350,48 @@ local Library = {
 
     Library.Themes = Themes
 
+    -- ---------------------------------------------------------------
+    -- Theme extras: UI font + menu background image. They live inside theme
+    -- profiles / exported theme strings next to the colors ("_extras").
+    -- ---------------------------------------------------------------
+    Library.ThemeExtras = Library.ThemeExtras or {
+        Font = nil,                   -- "Figtree", "Gotham", ...
+        Background = "",              -- rbxassetid / github link / discord attachment link
+        BackgroundTransparency = 0.45,-- image transparency (0 = fully visible)
+        BackgroundScale = "Crop",     -- Crop / Fit / Stretch / Tile
+        PanelTransparency = 0.35,     -- how see-through sections are while a background is set
+    }
+    Library.ThemeExtraKeys = { "Font", "Background", "BackgroundTransparency", "BackgroundScale", "PanelTransparency" }
+    Library.KeybindConflictMode = Library.KeybindConflictMode or "Ask"
+
+    Library.SnapshotThemeExtras = function(Self)
+        local E = Library.ThemeExtras
+        return {
+            Font = E.Font or Library.CurrentFontName or "Figtree",
+            Background = tostring(E.Background or ""),
+            BackgroundTransparency = E.BackgroundTransparency,
+            BackgroundScale = E.BackgroundScale,
+            PanelTransparency = E.PanelTransparency,
+        }
+    end
+
+    -- Extras = table from a theme file / string. Silent = don't redraw. FromProfile = came from a theme profile.
+    Library.ApplyThemeExtras = function(Self, Extras, Silent, FromProfile)
+        if type(Extras) ~= "table" then return false end
+        local E = Library.ThemeExtras
+        if type(Extras.Font) == "string" and Extras.Font ~= "" then E.Font = Extras.Font end
+        if type(Extras.Background) == "string" then E.Background = Extras.Background end
+        if type(Extras.BackgroundTransparency) == "number" then E.BackgroundTransparency = math.clamp(Extras.BackgroundTransparency, 0, 1) end
+        if type(Extras.PanelTransparency) == "number" then E.PanelTransparency = math.clamp(Extras.PanelTransparency, 0, 0.8) end
+        if type(Extras.BackgroundScale) == "string" and (Extras.BackgroundScale == "Crop" or Extras.BackgroundScale == "Fit"
+            or Extras.BackgroundScale == "Stretch" or Extras.BackgroundScale == "Tile") then
+            E.BackgroundScale = Extras.BackgroundScale
+        end
+        if FromProfile then Library.ThemeExtrasFromProfile = true end
+        if not Silent and Library.RefreshThemeExtras then Library:RefreshThemeExtras() end
+        return true
+    end
+
     -- flags that must be applied first when a config is loaded (JSON key order is random)
     Library.LoadFirst = { "SelectedTheme", "Mascot/Selected", "Mascot/Name" }
     -- UI-only flags that should never be written into a config
@@ -357,6 +399,9 @@ local Library = {
         ["Configs"] = true, ["ConfigName"] = true, ["ThemeProfiles"] = true, ["ThemeName"] = true,
         -- interface settings live in ui_state.json, not in configs
         ["UI/SearchBar"] = true, ["UI/Scale"] = true, ["UI/Opacity"] = true, ["UI/Font"] = true,
+        ["UI/KeybindConflict"] = true,
+        ["Theme/Font"] = true, ["Theme/Background"] = true, ["Theme/BackgroundOpacity"] = true,
+        ["Theme/PanelTransparency"] = true, ["Theme/BackgroundScale"] = true,
         ["UI/NotifSide"] = true, ["UI/NotificationDuration"] = true, ["UI/ThemeAnimation"] = true, ["UI/RememberUI"] = true,
         ["UI/ScalePreset"] = true,
         ["UI/WatermarkFields"] = true, ["UI/KeybindListMode"] = true, ["UI/ImportString"] = true
@@ -480,7 +525,19 @@ local Library = {
             Data[Index] = "#" .. Color:ToHex()
         end
 
+        -- font + menu background travel with the theme
+        Data["_extras"] = Library:SnapshotThemeExtras()
+
         return pcall(writefile, ThemePath(Name), HttpService:JSONEncode(Data))
+    end
+
+    -- the "_extras" block of a saved theme (nil for old theme files)
+    Library.ReadThemeExtras = function(Self, Name)
+        local Ok, Content = pcall(readfile, ThemePath(Name))
+        if not Ok then return nil end
+        local Parsed, Decoded = pcall(HttpService.JSONDecode, HttpService, Content)
+        if not Parsed or type(Decoded) ~= "table" or type(Decoded["_extras"]) ~= "table" then return nil end
+        return Decoded["_extras"]
     end
 
     Library.ReadTheme = function(Self, Name)
@@ -546,7 +603,10 @@ local Library = {
             return false
         end
 
-        return Library:ApplyThemeData(ThemeData)
+        local Result = Library:ApplyThemeData(ThemeData)
+        local Extras = Library:ReadThemeExtras(Name)
+        if Extras then Library:ApplyThemeExtras(Extras, false, true) end
+        return Result
     end
 
     local CustomFont = { } do
@@ -761,6 +821,8 @@ local Library = {
             return { "TextTransparency", "BackgroundTransparency" }
         elseif Object:IsA("UIStroke") then
             return { "Transparency" }
+        elseif Object:IsA("CanvasGroup") then
+            return { "GroupTransparency", "BackgroundTransparency" }
         elseif Object:IsA("ViewportFrame") then
             -- ImageTransparency fades the rendered 3D content (the character model),
             -- otherwise it stays opaque while the rest of the window fades out.
@@ -3065,6 +3127,10 @@ end
                 Keybind.Items = Items
             end
 
+            -- every keybind is known to the conflict checker
+            Library.KeybindRegistry = Library.KeybindRegistry or setmetatable({ }, {__mode = "k"})
+            Library.KeybindRegistry[Keybind] = true
+
             local ListItem
 
             if Library.KeyList then
@@ -3590,14 +3656,35 @@ end
 
                 local InputBegan
                 InputBegan = UserInputService.InputBegan:Connect(function(Input)
-                    if Input.UserInputType == Enum.UserInputType.Keyboard then
-                        Keybind:Set(Input.KeyCode)
-                    else
-                        Keybind:Set(Input.UserInputType)
-                    end
+                    local Picked = Input.UserInputType == Enum.UserInputType.Keyboard and Input.KeyCode or Input.UserInputType
 
                     InputBegan:Disconnect()
                     InputBegan = nil
+
+                    -- Interface > Keybind Conflicts: Ask / Replace / Allow duplicates
+                    local Mode = Library.KeybindConflictMode
+                    local Conflicts = (Mode ~= "Allow duplicates" and Picked ~= Enum.KeyCode.Unknown)
+                        and Library:FindKeybindConflicts(Keybind, Picked) or { }
+
+                    if #Conflicts == 0 then
+                        Keybind:Set(Picked)
+                    elseif Mode == "Replace" then
+                        Library:UnbindKeybinds(Conflicts)
+                        Keybind:Set(Picked)
+                    else
+                        -- Ask: keep the old key until the user decides
+                        Keybind.Picking = false
+                        KeyButton.Text = Keybind.Value
+                        RefreshButton()
+                        Library:ShowKeybindConflict(KeyButton, Keybind, Picked, Conflicts, function(Choice)
+                            if Choice == "Replace" then
+                                Library:UnbindKeybinds(Conflicts)
+                                Keybind:Set(Picked)
+                            elseif Choice == "Both" then
+                                Keybind:Set(Picked)
+                            end
+                        end)
+                    end
                 end)
             end)
 
@@ -4606,10 +4693,8 @@ Library.Watermark = function(Self, Params)
                 Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border
             }):AddToTheme({Color = "Outline"})
 
+            -- notification cards have no glow / halo behind them (removed on request)
             local GlowImage, GlowGoal
-            if Library.AttachNotificationGlow then
-                GlowImage, GlowGoal = Library:AttachNotificationGlow(Items.Card.Instance)
-            end
 
             -- Small emblem box: uses the Tab surface and leaves the icon untinted.
             if ShowIcon then
@@ -4885,6 +4970,7 @@ Library.Watermark = function(Self, Params)
 
             local ViewportModel
             local StartIdle
+            local ESPExtents = {Top = 3, Bottom = -3}
             local ESPVisibilityState = {}
             local Zoom = 6
             local MinZoom = 2
@@ -5002,6 +5088,14 @@ Library.Watermark = function(Self, Params)
 
                     ViewportModel:SetPrimaryPartCFrame(CFrame.Angles(0, math.rad(180), 0) + Vector3.new(0, 2, 0))
                     ViewportCamera.CFrame = CFrame.new(Vector3.new(0, 2, Zoom), Vector3.new(0, 1, 0))
+
+                    -- head-to-feet extents for the ESP overlay (measured while the model is upright)
+                    local Ok, BoxCFrame, BoxSize = pcall(function() return ViewportModel:GetBoundingBox() end)
+                    if Ok and BoxCFrame then
+                        local Centre = BoxCFrame.Position.Y - ViewportModel.PrimaryPart.Position.Y
+                        ESPExtents.Top = Centre + BoxSize.Y / 2
+                        ESPExtents.Bottom = Centre - BoxSize.Y / 2
+                    end
                 end
 
                 ViewportCamera.CameraSubject = ViewportModel
@@ -5065,6 +5159,263 @@ Library.Watermark = function(Self, Params)
                 end
             end)
 
+            -- ---- live ESP overlay: boxes / name / health / distance / skeleton / tracer on the character ----
+            -- Drive it with ESPPreview:SetElement("Box", {Enabled = true, Color = Color3.new(1, 0, 0)}).
+            local OverlayItem = Library:Create("Frame", {
+                Name = "\0",
+                Parent = Items["ViewportBackground"].Instance,
+                BackgroundTransparency = 1,
+                Size = UDim2.new(1, 0, 1, 0),
+                BorderSizePixel = 0,
+                ClipsDescendants = true,
+                Active = false,
+                ZIndex = 3
+            })
+            Items["ESPOverlay"] = OverlayItem
+            local Overlay = OverlayItem.Instance
+
+            local ESPState = {
+                Box = {Enabled = false, Color = Library.Theme["Accent"], Style = "Full"}, -- Style: "Full" | "Corner"
+                Name = {Enabled = false, Color = Color3.fromRGB(255, 255, 255), Text = LocalPlayer.DisplayName},
+                Health = {Enabled = false, Value = nil}, -- Value 0..1, nil = the character's real health
+                Distance = {Enabled = false, Color = Color3.fromRGB(255, 255, 255), Text = "27m"},
+                Skeleton = {Enabled = false, Color = Color3.fromRGB(255, 255, 255)},
+                Tracer = {Enabled = false, Color = Library.Theme["Accent"]},
+            }
+            ESPPreview.Elements = ESPState
+
+            local ESPPool = { }
+
+            local MakeESP = function(Class, Props)
+                local Object = Instance.new(Class)
+                Object.BorderSizePixel = 0
+                Object.ZIndex = 4
+                for Key, Value in Props do Object[Key] = Value end
+                Object.Visible = false
+                Object.Parent = Overlay
+                return Object
+            end
+
+            local ESPObjects = {
+                BoxOutline = MakeESP("Frame", {BackgroundTransparency = 1, ZIndex = 3}),
+                Box = MakeESP("Frame", {BackgroundTransparency = 1}),
+                Corners = { },
+                HealthBack = MakeESP("Frame", {BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.25}),
+                HealthFill = MakeESP("Frame", {ZIndex = 5}),
+                Name = MakeESP("TextLabel", {
+                    BackgroundTransparency = 1, FontFace = Library.Font, TextSize = 12,
+                    TextStrokeTransparency = 0, TextColor3 = Color3.new(1, 1, 1), AnchorPoint = Vector2.new(0.5, 1),
+                    Size = UDim2.fromOffset(0, 0), AutomaticSize = Enum.AutomaticSize.XY, Text = ""
+                }),
+                Distance = MakeESP("TextLabel", {
+                    BackgroundTransparency = 1, FontFace = Library.Font, TextSize = 11,
+                    TextStrokeTransparency = 0, TextColor3 = Color3.new(1, 1, 1), AnchorPoint = Vector2.new(0.5, 0),
+                    Size = UDim2.fromOffset(0, 0), AutomaticSize = Enum.AutomaticSize.XY, Text = ""
+                }),
+                Tracer = MakeESP("Frame", {AnchorPoint = Vector2.new(0.5, 0.5)}),
+                Skeleton = { },
+            }
+            do
+                local OutlineStroke = Instance.new("UIStroke")
+                OutlineStroke.Color = Color3.new(0, 0, 0)
+                OutlineStroke.Thickness = 3
+                OutlineStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                OutlineStroke.Parent = ESPObjects.BoxOutline
+                local BoxStroke = Instance.new("UIStroke")
+                BoxStroke.Thickness = 1
+                BoxStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                BoxStroke.Parent = ESPObjects.Box
+                ESPObjects.BoxStroke = BoxStroke
+                for Index = 1, 8 do
+                    ESPObjects.Corners[Index] = MakeESP("Frame", {AnchorPoint = Vector2.new(0, 0)})
+                end
+            end
+
+            local ESPProject = function(Point)
+                local Relative = ViewportCamera.CFrame:PointToObjectSpace(Point)
+                if Relative.Z >= -0.05 then return nil end
+                local Size = Overlay.AbsoluteSize
+                local Tangent = math.tan(math.rad(ViewportCamera.FieldOfView) / 2)
+                local Aspect = Size.X / math.max(Size.Y, 1)
+                local X = Relative.X / (-Relative.Z * Tangent * Aspect)
+                local Y = Relative.Y / (-Relative.Z * Tangent)
+                return Vector2.new((X + 1) / 2 * Size.X, (1 - Y) / 2 * Size.Y)
+            end
+
+            local ESPLine = function(Frame, A, B, Thickness, Color)
+                local Delta = B - A
+                Frame.AnchorPoint = Vector2.new(0.5, 0.5)
+                Frame.Position = UDim2.fromOffset((A.X + B.X) / 2, (A.Y + B.Y) / 2)
+                Frame.Size = UDim2.fromOffset(Delta.Magnitude, Thickness)
+                Frame.Rotation = math.deg(math.atan2(Delta.Y, Delta.X))
+                Frame.BackgroundColor3 = Color
+                Frame.Visible = true
+            end
+
+            local SkeletonFor, SkeletonJoints
+            local function HideAllESP()
+                ESPObjects.BoxOutline.Visible = false
+                ESPObjects.Box.Visible = false
+                for _, Corner in ESPObjects.Corners do Corner.Visible = false end
+                ESPObjects.HealthBack.Visible = false
+                ESPObjects.HealthFill.Visible = false
+                ESPObjects.Name.Visible = false
+                ESPObjects.Distance.Visible = false
+                ESPObjects.Tracer.Visible = false
+                for _, Line in ESPObjects.Skeleton do Line.Visible = false end
+            end
+
+            local UpdateESP = function()
+                local Model = ViewportModel
+                local Root = Model and Model.PrimaryPart
+                local Any = false
+                for _, Element in ESPState do if Element.Enabled then Any = true break end end
+                if not Root or not Any or ESPVisibilityState.Visible == false then
+                    HideAllESP()
+                    return
+                end
+
+                local Origin = Root.Position
+                local Top = ESPProject(Origin + Vector3.new(0, ESPExtents.Top, 0))
+                local Bottom = ESPProject(Origin + Vector3.new(0, ESPExtents.Bottom, 0))
+                if not Top or not Bottom then
+                    HideAllESP()
+                    return
+                end
+
+                local Height = math.max(Bottom.Y - Top.Y, 4)
+                local Width = Height * 0.55
+                local CenterX = (Top.X + Bottom.X) / 2
+                local Left, Right = CenterX - Width / 2, CenterX + Width / 2
+                local TopY, BottomY = Top.Y, Top.Y + Height
+
+                -- box
+                local Box = ESPState.Box
+                local Full = Box.Enabled and Box.Style ~= "Corner"
+                local Corner = Box.Enabled and Box.Style == "Corner"
+                for _, Frame in {ESPObjects.BoxOutline, ESPObjects.Box} do
+                    Frame.Position = UDim2.fromOffset(Left, TopY)
+                    Frame.Size = UDim2.fromOffset(Width, Height)
+                    Frame.Visible = Full
+                end
+                ESPObjects.BoxStroke.Color = Box.Color
+                local Length = math.max(math.floor(math.min(Width, Height) * 0.28), 4)
+                local CornerRects = {
+                    {Left, TopY, Length, 1}, {Left, TopY, 1, Length},
+                    {Right - Length, TopY, Length, 1}, {Right - 1, TopY, 1, Length},
+                    {Left, BottomY - 1, Length, 1}, {Left, BottomY - Length, 1, Length},
+                    {Right - Length, BottomY - 1, Length, 1}, {Right - 1, BottomY - Length, 1, Length},
+                }
+                for Index, Frame in ESPObjects.Corners do
+                    local Rect = CornerRects[Index]
+                    Frame.Position = UDim2.fromOffset(Rect[1], Rect[2])
+                    Frame.Size = UDim2.fromOffset(Rect[3], Rect[4])
+                    Frame.BackgroundColor3 = Box.Color
+                    Frame.Visible = Corner
+                end
+
+                -- name / distance
+                local NameState = ESPState.Name
+                ESPObjects.Name.Visible = NameState.Enabled
+                if NameState.Enabled then
+                    ESPObjects.Name.Text = tostring(NameState.Text or "")
+                    ESPObjects.Name.TextColor3 = NameState.Color
+                    ESPObjects.Name.Position = UDim2.fromOffset(CenterX, TopY - 3)
+                end
+                local DistanceState = ESPState.Distance
+                ESPObjects.Distance.Visible = DistanceState.Enabled
+                if DistanceState.Enabled then
+                    ESPObjects.Distance.Text = tostring(DistanceState.Text or "")
+                    ESPObjects.Distance.TextColor3 = DistanceState.Color
+                    ESPObjects.Distance.Position = UDim2.fromOffset(CenterX, BottomY + 2)
+                end
+
+                -- health bar (left of the box)
+                local HealthState = ESPState.Health
+                local Fraction = HealthState.Value
+                if Fraction == nil then
+                    local Humanoid = Model:FindFirstChildOfClass("Humanoid")
+                    Fraction = Humanoid and Humanoid.MaxHealth > 0 and (Humanoid.Health / Humanoid.MaxHealth) or 1
+                end
+                Fraction = math.clamp(Fraction, 0, 1)
+                ESPObjects.HealthBack.Visible = HealthState.Enabled
+                ESPObjects.HealthFill.Visible = HealthState.Enabled
+                if HealthState.Enabled then
+                    ESPObjects.HealthBack.Position = UDim2.fromOffset(Left - 7, TopY - 1)
+                    ESPObjects.HealthBack.Size = UDim2.fromOffset(4, Height + 2)
+                    local FillHeight = math.max((Height) * Fraction, 1)
+                    ESPObjects.HealthFill.Position = UDim2.fromOffset(Left - 6, BottomY - FillHeight)
+                    ESPObjects.HealthFill.Size = UDim2.fromOffset(2, FillHeight)
+                    ESPObjects.HealthFill.BackgroundColor3 = HealthState.Color
+                        or Color3.fromRGB(255, 70, 70):Lerp(Color3.fromRGB(80, 230, 120), Fraction)
+                end
+
+                -- tracer: bottom centre of the viewport -> feet
+                local TracerState = ESPState.Tracer
+                if TracerState.Enabled then
+                    local Size = Overlay.AbsoluteSize
+                    ESPLine(ESPObjects.Tracer, Vector2.new(Size.X / 2, Size.Y), Vector2.new(CenterX, BottomY), 1, TracerState.Color)
+                else
+                    ESPObjects.Tracer.Visible = false
+                end
+
+                -- skeleton: one line per body Motor6D
+                local SkeletonState = ESPState.Skeleton
+                if SkeletonState.Enabled then
+                    if SkeletonFor ~= Model then
+                        SkeletonFor = Model
+                        SkeletonJoints = { }
+                        for _, Joint in Model:GetDescendants() do
+                            if Joint:IsA("Motor6D") and Joint.Part0 and Joint.Part1
+                                and Joint.Part0.Name ~= "HumanoidRootPart" and Joint.Part1.Name ~= "HumanoidRootPart" then
+                                table.insert(SkeletonJoints, Joint)
+                            end
+                        end
+                    end
+                    for Index, Joint in SkeletonJoints do
+                        local Line = ESPObjects.Skeleton[Index]
+                        if not Line then
+                            Line = MakeESP("Frame", {})
+                            ESPObjects.Skeleton[Index] = Line
+                        end
+                        local A = Joint.Part0 and ESPProject(Joint.Part0.Position)
+                        local B = Joint.Part1 and ESPProject(Joint.Part1.Position)
+                        if A and B then
+                            ESPLine(Line, A, B, 1, SkeletonState.Color)
+                        else
+                            Line.Visible = false
+                        end
+                    end
+                    for Index = #SkeletonJoints + 1, #ESPObjects.Skeleton do
+                        ESPObjects.Skeleton[Index].Visible = false
+                    end
+                else
+                    for _, Line in ESPObjects.Skeleton do Line.Visible = false end
+                end
+            end
+
+            -- SetElement("Box", {Enabled = true, Color = ..., Style = "Corner"}); a bool = Enabled, a Color3 = Color
+            function ESPPreview:SetElement(Name, Props)
+                local Element = ESPState[Name]
+                if not Element then return false end
+                if type(Props) == "boolean" then
+                    Props = {Enabled = Props}
+                elseif typeof(Props) == "Color3" then
+                    Props = {Color = Props}
+                end
+                if type(Props) ~= "table" then return false end
+                for Key, Value in Props do Element[Key] = Value end
+                return true
+            end
+
+            function ESPPreview:SetElements(Map)
+                for Name, Props in Map do ESPPreview:SetElement(Name, Props) end
+            end
+
+            function ESPPreview:GetElement(Name)
+                return ESPState[Name]
+            end
+
             Library:Connect(RunService.RenderStepped, function(DeltaTime)
                 if not IsRotating then
                     if ESPPreview.Spinning then
@@ -5091,6 +5442,8 @@ Library.Watermark = function(Self, Params)
                     local Rotation = CFrame.Angles(Pitch, Yaw, Roll)
                     ViewportModel:SetPrimaryPartCFrame(Rotation + Vector3.new(0, 2, 0))
                 end
+
+                UpdateESP()
             end)
 
             UpdateCamera()
@@ -9829,6 +10182,7 @@ end
             for Index, Color in Library.Theme do
                 Data[Index] = "#" .. Color:ToHex()
             end
+            Data["_extras"] = Library:SnapshotThemeExtras()
 
             return Library.ThemePrefix .. B64Encode(HttpService:JSONEncode(Data))
         end
@@ -9868,6 +10222,7 @@ end
             end
 
             Library:ApplyThemeData(ThemeData)
+            if type(Decoded["_extras"]) == "table" then Library:ApplyThemeExtras(Decoded["_extras"]) end
             return true
         end
 
@@ -10604,7 +10959,7 @@ end
             Element.Kind = Kind
             Element.RootInstance = Root
             Element.Name = Element.Name or Params.Name or Params.name or ""
-            Element.Searchable = Kind ~= "ListBox"
+            Element.Searchable = Kind ~= "ListBox" and Kind ~= "Image" and Kind ~= "Video" and Kind ~= "Viewport"
 
             Section.Elements = Section.Elements or { }
             table.insert(Section.Elements, Element)
@@ -10728,6 +11083,410 @@ end
             end
         end
 
+        -- ---------- media elements: Image / Video / Viewport (Obsidian-style) ----------
+        local ParseScale = function(Value, Default)
+            if typeof(Value) == "EnumItem" then return Value end
+            local Names = { crop = Enum.ScaleType.Crop, fit = Enum.ScaleType.Fit, stretch = Enum.ScaleType.Stretch,
+                slice = Enum.ScaleType.Slice, tile = Enum.ScaleType.Tile }
+            return Names[tostring(Value or ""):lower()] or Default or Enum.ScaleType.Fit
+        end
+
+        -- outlined rounded frame used by all three media elements
+        local MediaShell = function(Parent, Height, ClassName)
+            local Root = Library:Create("Frame", {
+                Name = "\0", Parent = Parent.Instance, BackgroundTransparency = 1,
+                Size = UDim2.new(1, 0, 0, Height), BorderSizePixel = 0
+            })
+            local Shell = Library:Create("Frame", {
+                Name = "\0", Parent = Root.Instance, Size = UDim2.new(1, 0, 1, 0), BorderSizePixel = 0,
+                BackgroundColor3 = Library.Theme["Background"], ClipsDescendants = true
+            }):AddToTheme({BackgroundColor3 = "Background"})
+            Library:Create("UICorner", {Name = "\0", Parent = Shell.Instance, CornerRadius = UDim.new(0, 6)})
+            Library:Create("UIStroke", {
+                Name = "\0", Parent = Shell.Instance, Color = Library.Theme["Outline"],
+                ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            }):AddToTheme({Color = "Outline"})
+            return Root, Shell
+        end
+
+        local MediaStatus = function(Shell, Text)
+            return Library:Create("TextLabel", {
+                Name = "\0", Parent = Shell.Instance, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 1, 0),
+                FontFace = Library.Font, TextSize = Library.FontSize, Text = Text,
+                TextColor3 = Library.Theme["Inactive Text"], BorderSizePixel = 0
+            }):AddToTheme({TextColor3 = "Inactive Text"})
+        end
+
+        -- small keybind-style chip button (Tab fill, Outline stroke)
+        local MediaChip = function(Parent, Text, Position, Width)
+            local Button = Instance.new("TextButton")
+            Button.Name = "\0"
+            Button.AutoButtonColor = false
+            Button.BorderSizePixel = 0
+            Button.BackgroundColor3 = Library.Theme["Tab"]
+            Button.BackgroundTransparency = 0.1
+            Button.FontFace = Library.Font
+            Button.TextSize = Library.FontSize - 1
+            Button.TextColor3 = Library.Theme["Text"]
+            Button.Text = Text
+            Button.AnchorPoint = Vector2.new(1, 0)
+            Button.Position = Position
+            Button.Size = UDim2.fromOffset(Width or 20, 18)
+            Button.ZIndex = 5
+            Instance.new("UICorner", Button).CornerRadius = UDim.new(0, 4)
+            local Stroke = Instance.new("UIStroke", Button)
+            Stroke.Color = Library.Theme["Outline"]
+            Stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            Button.MouseEnter:Connect(function() Stroke.Color = Library.Theme["Accent"] end)
+            Button.MouseLeave:Connect(function() Stroke.Color = Library.Theme["Outline"] end)
+            Button.Parent = Parent
+            return Button
+        end
+
+        -- Section:Image({Image = "rbxassetid://.." | "https://github.com/.../blob/.." | discord attachment link,
+        --   Height = 120, ScaleType = "Fit", Transparency = 0, Color = Color3, RectOffset, RectSize})
+        Library.Image = function(Self, Params)
+            Params = Params or { }
+            local Image = {
+                Name = Params.Name or Params.name or "Image",
+                Source = Params.Image or Params.image or Params.Source or "",
+                Height = Params.Height or Params.height or 120,
+                Token = 0,
+                Window = Self.Window, Page = Self.Page, Section = Self, Items = { }
+            }
+            local Parent = Params.Parent or Self.Items["Content"]
+
+            local Items = { } do
+                local Root, Shell = MediaShell(Parent, Image.Height)
+                Items["Image"], Items["Shell"] = Root, Shell
+                Items["Picture"] = Library:Create("ImageLabel", {
+                    Name = "\0", Parent = Shell.Instance, BackgroundTransparency = 1, BorderSizePixel = 0,
+                    Size = UDim2.new(1, 0, 1, 0), Image = "",
+                    ScaleType = ParseScale(Params.ScaleType or Params.scaletype, Enum.ScaleType.Fit),
+                    ImageTransparency = Params.Transparency or Params.transparency or 0,
+                    ImageColor3 = Params.Color or Params.color or Color3.new(1, 1, 1)
+                })
+                Library:Create("UICorner", {Name = "\0", Parent = Items["Picture"].Instance, CornerRadius = UDim.new(0, 6)})
+                Items["Status"] = MediaStatus(Shell, "No image")
+                Image.Items = Items
+            end
+            local Picture, Status = Items["Picture"].Instance, Items["Status"].Instance
+
+            if Params.RectOffset or Params.RectSize then
+                Picture.ImageRectOffset = Params.RectOffset or Vector2.zero
+                Picture.ImageRectSize = Params.RectSize or Vector2.zero
+            end
+
+            function Image:SetImage(Source)
+                Image.Source = Source
+                Image.Token += 1
+                local Token = Image.Token
+                local Text = tostring(Source or "")
+                if Text == "" then
+                    Picture.Image = ""
+                    Status.Text, Status.Visible = "No image", true
+                    return
+                end
+                Status.Text, Status.Visible = "Loading...", true
+                task.spawn(function()
+                    local Ok, Result, Reason = pcall(function() return Library:ResolveImageSource(Text) end)
+                    if Token ~= Image.Token or not Picture.Parent then return end
+                    if Ok and type(Result) == "string" and Result ~= "" then
+                        Picture.Image = Result
+                        Status.Visible = false
+                    else
+                        Picture.Image = ""
+                        Status.Text = "Couldn't load image" .. ((Ok and Reason) and (": " .. tostring(Reason)) or "")
+                        Status.Visible = true
+                    end
+                end)
+            end
+            function Image:Set(Source) Image:SetImage(Source) end
+            function Image:SetColor(Color) Picture.ImageColor3 = Color end
+            function Image:SetTransparency(Value) Picture.ImageTransparency = Value end
+            function Image:SetScaleType(Value) Picture.ScaleType = ParseScale(Value, Enum.ScaleType.Fit) end
+            function Image:SetHeight(Value)
+                Image.Height = Value
+                Items["Image"].Instance.Size = UDim2.new(1, 0, 0, Value)
+            end
+
+            Image:SetImage(Image.Source)
+            return Image
+        end
+
+        -- Section:Video({Video = "rbxassetid://.." | direct .webm/.mp4 link, Height = 160, Looped = true,
+        --   Playing = true, Volume = 0.5})
+        Library.Video = function(Self, Params)
+            Params = Params or { }
+            local Video = {
+                Name = Params.Name or Params.name or "Video",
+                Source = Params.Video or Params.video or Params.Source or "",
+                Height = Params.Height or Params.height or 160,
+                Token = 0,
+                Window = Self.Window, Page = Self.Page, Section = Self, Items = { }
+            }
+            local Parent = Params.Parent or Self.Items["Content"]
+
+            local Items = { } do
+                local Root, Shell = MediaShell(Parent, Video.Height)
+                Items["Video"], Items["Shell"] = Root, Shell
+                -- a CanvasGroup fades the video together with the window (a bare VideoFrame can't be faded)
+                Items["Canvas"] = Library:Create("CanvasGroup", {
+                    Name = "\0", Parent = Shell.Instance, BackgroundTransparency = 1, BorderSizePixel = 0,
+                    Size = UDim2.new(1, 0, 1, 0)
+                })
+                Library:Create("UICorner", {Name = "\0", Parent = Items["Canvas"].Instance, CornerRadius = UDim.new(0, 6)})
+                Items["Frame"] = Library:Create("VideoFrame", {
+                    Name = "\0", Parent = Items["Canvas"].Instance, BackgroundTransparency = 1, BorderSizePixel = 0,
+                    Size = UDim2.new(1, 0, 1, 0), Looped = Params.Looped ~= false, Playing = false,
+                    Volume = Params.Volume or Params.volume or 0.5
+                })
+                Items["Status"] = MediaStatus(Shell, "No video")
+                Video.Items = Items
+            end
+            local Canvas = Items["Canvas"].Instance
+            local Frame = Items["Frame"].Instance
+            local Status = Items["Status"].Instance
+
+            -- control strip: play/pause chip + progress bar (click to seek)
+            local Play = MediaChip(Canvas, "Pause", UDim2.new(0, 56, 1, -24), 50)
+            Play.AnchorPoint = Vector2.new(1, 0)
+            local Track = Instance.new("TextButton")
+            Track.Name = "\0"
+            Track.AutoButtonColor = false
+            Track.Text = ""
+            Track.BorderSizePixel = 0
+            Track.BackgroundColor3 = Library.Theme["Inline"]
+            Track.Position = UDim2.new(0, 64, 1, -16)
+            Track.Size = UDim2.new(1, -74, 0, 5)
+            Track.ZIndex = 5
+            Instance.new("UICorner", Track).CornerRadius = UDim.new(1, 0)
+            local Fill = Instance.new("Frame")
+            Fill.BorderSizePixel = 0
+            Fill.BackgroundColor3 = Library.Theme["Accent"]
+            Fill.Size = UDim2.new(0, 0, 1, 0)
+            Fill.ZIndex = 6
+            Instance.new("UICorner", Fill).CornerRadius = UDim.new(1, 0)
+            Fill.Parent = Track
+            Track.Parent = Canvas
+
+            Play.MouseButton1Click:Connect(function()
+                Frame.Playing = not Frame.Playing
+            end)
+            Track.MouseButton1Click:Connect(function()
+                if Frame.TimeLength > 0 then
+                    local Alpha = math.clamp((Mouse.X - Track.AbsolutePosition.X) / math.max(Track.AbsoluteSize.X, 1), 0, 1)
+                    Frame.TimePosition = Alpha * Frame.TimeLength
+                end
+            end)
+            Library:Connect(RunService.RenderStepped, function()
+                if not Frame.Parent or not Items["Video"].Instance.Visible then return end
+                Play.Text = Frame.Playing and "Pause" or "Play"
+                if Frame.TimeLength > 0 then
+                    Fill.Size = UDim2.new(math.clamp(Frame.TimePosition / Frame.TimeLength, 0, 1), 0, 1, 0)
+                end
+            end)
+
+            function Video:SetVideo(Source)
+                Video.Source = Source
+                Video.Token += 1
+                local Token = Video.Token
+                local Text = tostring(Source or "")
+                if Text == "" then
+                    Frame.Playing = false
+                    Frame.Video = ""
+                    Status.Text, Status.Visible = "No video", true
+                    return
+                end
+                Status.Text, Status.Visible = "Loading...", true
+                task.spawn(function()
+                    local Ok, Result = pcall(function() return Library:ResolveVideoSource(Text) end)
+                    if Token ~= Video.Token or not Frame.Parent then return end
+                    if Ok and type(Result) == "string" and Result ~= "" then
+                        Frame.Video = Result
+                        Status.Visible = false
+                        Frame.Playing = Params.Playing ~= false
+                    else
+                        Status.Text, Status.Visible = "Couldn't load video (use rbxassetid or a .webm/.mp4 link)", true
+                    end
+                end)
+            end
+            function Video:Set(Source) Video:SetVideo(Source) end
+            function Video:Play() Frame.Playing = true end
+            function Video:Pause() Frame.Playing = false end
+            function Video:SetVolume(Value) Frame.Volume = Value end
+            function Video:SetLooped(Value) Frame.Looped = Value and true or false end
+            function Video:SetHeight(Value)
+                Video.Height = Value
+                Items["Video"].Instance.Size = UDim2.new(1, 0, 0, Value)
+            end
+
+            Video:SetVideo(Video.Source)
+            return Video
+        end
+
+        -- Section:Viewport({Object = Model|BasePart, Clone = true, Camera = Camera?, AutoFocus = true,
+        --   Interactive = true, Spin = false, Height = 160})
+        Library.Viewport = function(Self, Params)
+            Params = Params or { }
+            local Viewport = {
+                Name = Params.Name or Params.name or "Viewport",
+                Object = nil,
+                Height = Params.Height or Params.height or 160,
+                Interactive = Params.Interactive ~= false and Params.interactive ~= false,
+                Spin = Params.Spin == true,
+                AutoFocus = Params.AutoFocus ~= false,
+                Window = Self.Window, Page = Self.Page, Section = Self, Items = { }
+            }
+            local Parent = Params.Parent or Self.Items["Content"]
+            local Yaw, Pitch, Zoom = math.rad(20), math.rad(-12), 1
+            local Centre, FocusDistance = Vector3.zero, 10
+            local CustomCamera = Params.Camera
+
+            local Items = { } do
+                local Root, Shell = MediaShell(Parent, Viewport.Height)
+                Items["Viewport"], Items["Shell"] = Root, Shell
+                Items["Frame"] = Library:Create("ViewportFrame", {
+                    Name = "\0", Parent = Shell.Instance, BackgroundTransparency = 1, BorderSizePixel = 0,
+                    Size = UDim2.new(1, 0, 1, 0), Ambient = Color3.fromRGB(200, 200, 200),
+                    LightColor = Color3.fromRGB(255, 255, 255), LightDirection = Vector3.new(-1, -1, -1)
+                })
+                Items["Status"] = MediaStatus(Shell, "No object")
+                Viewport.Items = Items
+            end
+            local Frame = Items["Frame"].Instance
+            local Status = Items["Status"].Instance
+
+            local Camera = CustomCamera or Instance.new("Camera")
+            Camera.FieldOfView = Params.FieldOfView or 50
+            Camera.Parent = Frame
+            Frame.CurrentCamera = Camera
+            Viewport.Camera = Camera
+
+            local function UpdateCamera()
+                if CustomCamera and not Viewport.Interactive then return end
+                local Distance = FocusDistance * Zoom
+                Camera.CFrame = CFrame.new(Centre) * CFrame.Angles(0, Yaw, 0) * CFrame.Angles(Pitch, 0, 0) * CFrame.new(0, 0, Distance)
+            end
+
+            function Viewport:Focus()
+                local Object = Viewport.Object
+                if not Object then return end
+                local CFrameBox, Size = CFrame.new(), Vector3.new(4, 4, 4)
+                if Object:IsA("Model") then
+                    CFrameBox, Size = Object:GetBoundingBox()
+                elseif Object:IsA("BasePart") then
+                    CFrameBox, Size = Object.CFrame, Object.Size
+                end
+                Centre = CFrameBox.Position
+                local Radius = math.max(Size.Magnitude / 2, 0.5)
+                FocusDistance = Radius / math.sin(math.rad(Camera.FieldOfView / 2))
+                Zoom = 1
+                UpdateCamera()
+            end
+
+            function Viewport:SetObject(Object, Clone)
+                if Viewport.Object then Viewport.Object:Destroy() Viewport.Object = nil end
+                if typeof(Object) ~= "Instance" then
+                    Status.Text, Status.Visible = "No object", true
+                    return
+                end
+                local Prepared = Object
+                if Clone ~= false then
+                    local Archivable = Object.Archivable
+                    Object.Archivable = true
+                    Prepared = Object:Clone()
+                    Object.Archivable = Archivable
+                end
+                if not Prepared then
+                    Status.Text, Status.Visible = "Object can't be cloned", true
+                    return
+                end
+                for _, Child in Prepared:GetDescendants() do
+                    if Child:IsA("Script") or Child:IsA("LocalScript") then Child:Destroy() end
+                end
+                Prepared.Parent = Frame
+                Viewport.Object = Prepared
+                Status.Visible = false
+                if Viewport.AutoFocus then Viewport:Focus() end
+            end
+
+            function Viewport:SetCamera(NewCamera)
+                if typeof(NewCamera) ~= "Instance" or not NewCamera:IsA("Camera") then return end
+                if Camera ~= CustomCamera and Camera.Parent == Frame then Camera:Destroy() end
+                CustomCamera = NewCamera
+                Camera = NewCamera
+                Camera.Parent = Frame
+                Frame.CurrentCamera = Camera
+                Viewport.Camera = Camera
+            end
+
+            function Viewport:SetSpin(Bool) Viewport.Spin = Bool and true or false end
+            function Viewport:SetHeight(Value)
+                Viewport.Height = Value
+                Items["Viewport"].Instance.Size = UDim2.new(1, 0, 0, Value)
+            end
+            function Viewport:Zoom(Factor)
+                Zoom = math.clamp(Zoom * Factor, 0.25, 3)
+                UpdateCamera()
+            end
+            function Viewport:GetObject() return Viewport.Object end
+
+            -- drag to rotate; +/-/R chips (the section scrolls with the wheel, so no wheel zoom)
+            if Viewport.Interactive then
+                local Drag = Instance.new("TextButton")
+                Drag.Name = "\0"
+                Drag.Text = ""
+                Drag.BackgroundTransparency = 1
+                Drag.BorderSizePixel = 0
+                Drag.AutoButtonColor = false
+                Drag.Size = UDim2.new(1, 0, 1, 0)
+                Drag.ZIndex = 3
+                Drag.Parent = Items["Shell"].Instance
+
+                local Dragging, Last = false, nil
+                Drag.InputBegan:Connect(function(Input)
+                    if Input.UserInputType == Enum.UserInputType.MouseButton1 or Input.UserInputType == Enum.UserInputType.Touch then
+                        Dragging, Last = true, Input.Position
+                    end
+                end)
+                Library:Connect(UserInputService.InputChanged, function(Input)
+                    if Dragging and (Input.UserInputType == Enum.UserInputType.MouseMovement or Input.UserInputType == Enum.UserInputType.Touch) then
+                        local Delta = Input.Position - Last
+                        Last = Input.Position
+                        Yaw -= Delta.X * 0.012
+                        Pitch = math.clamp(Pitch - Delta.Y * 0.008, math.rad(-80), math.rad(80))
+                        UpdateCamera()
+                    end
+                end)
+                Library:Connect(UserInputService.InputEnded, function(Input)
+                    if Input.UserInputType == Enum.UserInputType.MouseButton1 or Input.UserInputType == Enum.UserInputType.Touch then
+                        Dragging = false
+                    end
+                end)
+
+                local Shell = Items["Shell"].Instance
+                MediaChip(Shell, "R", UDim2.new(1, -6, 0, 6), 20).MouseButton1Click:Connect(function()
+                    Yaw, Pitch = math.rad(20), math.rad(-12)
+                    Viewport:Focus()
+                end)
+                MediaChip(Shell, "-", UDim2.new(1, -30, 0, 6), 20).MouseButton1Click:Connect(function() Viewport:Zoom(1.2) end)
+                MediaChip(Shell, "+", UDim2.new(1, -54, 0, 6), 20).MouseButton1Click:Connect(function() Viewport:Zoom(1 / 1.2) end)
+            end
+
+            Library:Connect(RunService.RenderStepped, function(DeltaTime)
+                if Viewport.Spin and Viewport.Object and Frame.AbsoluteSize.X > 0 then
+                    Yaw += DeltaTime * 0.8
+                    UpdateCamera()
+                end
+            end)
+
+            UpdateCamera()
+            local Initial = Params.Object or Params.object
+            if Initial then Viewport:SetObject(Initial, Params.Clone) end
+            return Viewport
+        end
+
         do
             local Roots = {
                 Toggle = "Toggle",
@@ -10737,7 +11496,10 @@ end
                 Label = "Label",
                 Textbox = "Textbox",
                 ListBox = "List",
-                RangeSlider = "RangeSlider"
+                RangeSlider = "RangeSlider",
+                Image = "Image",
+                Video = "Video",
+                Viewport = "Viewport"
             }
 
             for Kind, RootName in Roots do
@@ -10843,9 +11605,10 @@ end
                 Self.Sections = Self.Sections or { }
                 table.insert(Self.Sections, Section)
 
-                if Library.WindowOpacity and Library.WindowOpacity > 0 then
-                    Section.Items["Section"].Instance.BackgroundTransparency = Library.WindowOpacity
-                    Section.Items["Top"].Instance.BackgroundTransparency = Library.WindowOpacity
+                local PanelTransparency = Library:GetPanelTransparency()
+                if PanelTransparency > 0 then
+                    Section.Items["Section"].Instance.BackgroundTransparency = PanelTransparency
+                    Section.Items["Top"].Instance.BackgroundTransparency = PanelTransparency
                 end
 
                 function Section:ResetAll()
@@ -11100,9 +11863,365 @@ end
             end
 
             Library.Font = FontFace
+            Library.CurrentFontName = (Name == "Figtree" or not Enum.Font[Name]) and "Figtree" or Name
             ApplyFontToTree(Library.Holder and Library.Holder.Instance, FontFace)
             ApplyFontToTree(Library.NotifHolder and Library.NotifHolder.Instance, FontFace)
             return true
+        end
+
+        -- ---------- image sources: rbxassetid / GitHub / Discord attachment links ----------
+        local TrimText = function(Text)
+            return (tostring(Text or ""):gsub("^%s+", ""):gsub("%s+$", ""))
+        end
+
+        -- Returns a Roblox-loadable content string, or "" and a reason.
+        Library.ResolveImageSource = function(Self, Value)
+            local Source = TrimText(Value)
+            if Source == "" then return "", "empty" end
+            if Source:match("^rbxassetid://") or Source:match("^rbxasset://") or Source:match("^%d+$")
+                or Source:match("^rbxthumb://") or Source:match("^rbxgameasset://") then
+                return Library:ResolveLogo(Source)
+            end
+
+            local Host = Source:match("^https?://([^/]+)")
+            if not Host then return "", "not a link" end
+            Host = Host:lower()
+
+            -- a link to a Discord MESSAGE can't be downloaded (needs a bot token);
+            -- the attachment's own link (right click the image -> copy image link) can.
+            if (Host:find("discord.com", 1, true) or Host:find("discordapp.com", 1, true)) and Source:find("/channels/", 1, true) then
+                return "", "discord message link: use the image's attachment link"
+            end
+
+            if Host == "media.discordapp.net" or Host == "cdn.discordapp.com" then
+                -- media.* serves resized webp, the cdn serves the original file (png/jpg)
+                Source = Source:gsub("//media%.discordapp%.net", "//cdn.discordapp.com")
+                local Base, Query = Source:match("^([^?]+)%??(.*)$")
+                if Query and Query ~= "" then
+                    local Kept = { }
+                    for Pair in Query:gmatch("[^&]+") do
+                        local Key = Pair:match("^([^=]+)")
+                        if Key ~= "format" and Key ~= "width" and Key ~= "height" and Key ~= "quality" then
+                            table.insert(Kept, Pair)
+                        end
+                    end
+                    Source = #Kept > 0 and (Base .. "?" .. table.concat(Kept, "&")) or Base
+                end
+            end
+
+            -- github.com/<user>/<repo>/blob|raw/<branch>/<path> is converted by ResolveLogo
+            local Result = Library:ResolveLogo(Source)
+            if Result == "" then return "", "download failed" end
+            return Result
+        end
+
+        -- video: rbxassetid, or a direct .webm/.mp4 link (downloaded once, then played from disk)
+        Library.ResolveVideoSource = function(Self, Value)
+            local Source = TrimText(Value)
+            if Source == "" then return "" end
+            if Source:match("^%d+$") then return "rbxassetid://" .. Source end
+            if not Source:match("^https?://") then return Source end
+
+            Library.VideoCache = Library.VideoCache or { }
+            if Library.VideoCache[Source] then return Library.VideoCache[Source] end
+            if not (writefile and getcustomasset) then return "" end
+
+            local Fetch = Source
+            local Repo, Branch, Asset = Source:match("^https?://github%.com/([^/]+/[^/]+)/blob/([^/]+)/(.+)$")
+            if Repo then Fetch = "https://raw.githubusercontent.com/" .. Repo .. "/" .. Branch .. "/" .. Asset end
+            Fetch = Fetch:gsub("//media%.discordapp%.net", "//cdn.discordapp.com")
+
+            local Extension = (Fetch:match("^[^?]+%.(%w+)$") or "webm"):lower()
+            if Extension ~= "webm" and Extension ~= "mp4" then Extension = "webm" end
+            local Hash = 0
+            for Index = 1, #Fetch do Hash = (Hash * 33 + string.byte(Fetch, Index)) % 2147483647 end
+            local File = Library.Directory .. "/Assets/video_" .. tostring(Hash) .. "." .. Extension
+
+            local Ok, Result = pcall(function()
+                if not (isfile and isfile(File)) then writefile(File, game:HttpGet(Fetch)) end
+                return getcustomasset(File)
+            end)
+            if Ok and Result then
+                Library.VideoCache[Source] = Result
+                return Result
+            end
+            return ""
+        end
+
+        -- ---------- menu background image (part of the theme) ----------
+        Library.BackgroundScaleTypes = { "Crop", "Fit", "Stretch", "Tile" }
+
+        Library.SetMenuBackground = function(Self)
+            local E = Library.ThemeExtras
+            local Window = Library.ActiveWindow
+            local MainItem = Window and Window.Items and Window.Items.MainFrame
+            local Main = MainItem and MainItem.Instance
+            if not Main then return end
+
+            Library.BackgroundToken = (Library.BackgroundToken or 0) + 1
+            local Token = Library.BackgroundToken
+            local Source = TrimText(E.Background)
+
+            local function Look(Image)
+                local Scale = ({
+                    Crop = Enum.ScaleType.Crop, Fit = Enum.ScaleType.Fit,
+                    Stretch = Enum.ScaleType.Stretch, Tile = Enum.ScaleType.Tile
+                })[E.BackgroundScale] or Enum.ScaleType.Crop
+                Image.ScaleType = Scale
+                if Scale == Enum.ScaleType.Tile then Image.TileSize = UDim2.fromOffset(256, 256) end
+                TweenService:Create(Image, TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+                    {ImageTransparency = E.BackgroundTransparency}):Play()
+            end
+
+            local Existing = Main:FindFirstChild("MimiMenuBackground")
+
+            if Source == "" then
+                Library.MenuBackgroundActive = false
+                if Existing then
+                    local Tween = TweenService:Create(Existing, TweenInfo.new(0.25), {ImageTransparency = 1})
+                    Tween:Play()
+                    task.delay(0.3, function()
+                        if Token == Library.BackgroundToken and Existing.Parent then Existing:Destroy() end
+                    end)
+                end
+                Library:SetWindowOpacity(Library.WindowOpacity or 0)
+                return
+            end
+
+            -- opacity / scale only changed: no need to download again
+            if Existing and Existing:GetAttribute("Source") == Source then
+                Library.MenuBackgroundActive = true
+                Look(Existing)
+                Library:SetWindowOpacity(Library.WindowOpacity or 0)
+                return
+            end
+
+            task.spawn(function()
+                local Ok, Asset, Reason = pcall(function() return Library:ResolveImageSource(Source) end)
+                if Token ~= Library.BackgroundToken then return end
+                if not Ok or type(Asset) ~= "string" or Asset == "" then
+                    Library:Notification({
+                        Name = "Background",
+                        Description = "Couldn't load the image (" .. tostring(Ok and Reason or Asset) .. "). Use rbxassetid, a GitHub link or a Discord attachment link.",
+                        Duration = 6
+                    })
+                    return
+                end
+
+                local Image = Main:FindFirstChild("MimiMenuBackground")
+                if not Image then
+                    Image = Instance.new("ImageLabel")
+                    Image.Name = "MimiMenuBackground"
+                    Image.BackgroundTransparency = 1
+                    Image.BorderSizePixel = 0
+                    Image.Active = false
+                    Image.Interactable = false
+                    Image.ZIndex = 0
+                    Image.Size = UDim2.fromScale(1, 1)
+                    Image.ImageTransparency = 1
+                    Instance.new("UICorner", Image).CornerRadius = UDim.new(0, 10)
+                    Image.Parent = Main
+                end
+                Image.Image = Asset
+                Image:SetAttribute("Source", Source)
+                Library.MenuBackgroundActive = true
+                Look(Image)
+                Library:SetWindowOpacity(Library.WindowOpacity or 0)
+            end)
+        end
+
+        -- redraw font + background from Library.ThemeExtras, sync the settings controls, remember them
+        Library.RefreshThemeExtras = function(Self)
+            local E = Library.ThemeExtras
+
+            if E.Font and Library.CurrentFontName ~= E.Font then
+                Library:SetUIFont(E.Font)
+            end
+
+            Library.ThemeExtrasSyncing = true
+            local Sync = function(Flag, Value)
+                local Setter = Library.SetFlags and Library.SetFlags[Flag]
+                if Setter then pcall(Setter, Value) end
+            end
+            Sync("Theme/Font", E.Font or "Figtree")
+            Sync("Theme/Background", E.Background or "")
+            Sync("Theme/BackgroundOpacity", math.floor((1 - E.BackgroundTransparency) * 100 + 0.5))
+            Sync("Theme/PanelTransparency", math.floor(E.PanelTransparency * 100 + 0.5))
+            Sync("Theme/BackgroundScale", E.BackgroundScale)
+            Library.ThemeExtrasSyncing = false
+
+            Library:SetMenuBackground()
+
+            if Library.UIStateLoaded then
+                local State = Library:LoadUIState()
+                State.ThemeExtras = Library:SnapshotThemeExtras()
+                Library:QueueSaveUIState()
+            end
+        end
+
+        -- ---------- keybind conflicts ----------
+        Library.KeybindRegistry = Library.KeybindRegistry or setmetatable({ }, {__mode = "k"})
+
+        Library.FindKeybindConflicts = function(Self, Keybind, Picked)
+            local Wanted = tostring(Picked)
+            local Found = { }
+            for Other in pairs(Library.KeybindRegistry) do
+                if Other ~= Keybind and Other.Key == Wanted and Other.Value ~= "None" then
+                    table.insert(Found, Other)
+                end
+            end
+            return Found
+        end
+
+        Library.UnbindKeybinds = function(Self, List)
+            for _, Other in List do
+                pcall(function() Other:Set({Key = "None", Mode = Other.Mode}) end)
+            end
+        end
+
+        -- small themed popup: "Key X is already used by ..." -> Replace / Keep both / Cancel
+        Library.ShowKeybindConflict = function(Self, Anchor, Keybind, Picked, Conflicts, OnChoice)
+            if Library.ConflictPopup then
+                pcall(function() Library.ConflictPopup:Destroy() end)
+                Library.ConflictPopup = nil
+            end
+
+            local Names = { }
+            for _, Other in Conflicts do table.insert(Names, '"' .. tostring(Other.Name) .. '"') end
+            local KeyName = (typeof(Picked) == "EnumItem") and Picked.Name or tostring(Picked)
+
+            local Width = 250
+            local Popup = Instance.new("CanvasGroup")
+            Popup.Name = "MimiKeybindConflict"
+            Popup.BackgroundColor3 = Library.Theme["Background"]
+            Popup.BorderSizePixel = 0
+            Popup.GroupTransparency = 1
+            Popup.ZIndex = 900
+            Popup.AutomaticSize = Enum.AutomaticSize.Y
+            Popup.Size = UDim2.fromOffset(Width, 0)
+            Instance.new("UICorner", Popup).CornerRadius = UDim.new(0, 6)
+            local Stroke = Instance.new("UIStroke", Popup)
+            Stroke.Color = Library.Theme["Accent"]
+            Stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            local Padding = Instance.new("UIPadding", Popup)
+            Padding.PaddingTop, Padding.PaddingBottom = UDim.new(0, 10), UDim.new(0, 10)
+            Padding.PaddingLeft, Padding.PaddingRight = UDim.new(0, 10), UDim.new(0, 10)
+            local Layout = Instance.new("UIListLayout", Popup)
+            Layout.Padding = UDim.new(0, 8)
+            Layout.SortOrder = Enum.SortOrder.LayoutOrder
+
+            local function Text(Content, Color, Order, Size)
+                local Label = Instance.new("TextLabel")
+                Label.BackgroundTransparency = 1
+                Label.BorderSizePixel = 0
+                Label.FontFace = Library.Font
+                Label.TextSize = Size or Library.FontSize
+                Label.TextColor3 = Color
+                Label.TextWrapped = true
+                Label.RichText = false
+                Label.TextXAlignment = Enum.TextXAlignment.Left
+                Label.Size = UDim2.new(1, 0, 0, 0)
+                Label.AutomaticSize = Enum.AutomaticSize.Y
+                Label.Text = Content
+                Label.LayoutOrder = Order
+                Label.ZIndex = 901
+                Label.Parent = Popup
+                return Label
+            end
+
+            Text("Key [" .. KeyName .. "] is already used by " .. table.concat(Names, ", "), Library.Theme["Text"], 1)
+            Text("Replace unbinds the other one. Keep both lets them share the key.", Library.Theme["Inactive Text"], 2, Library.FontSize - 1)
+
+            local Row = Instance.new("Frame")
+            Row.BackgroundTransparency = 1
+            Row.BorderSizePixel = 0
+            Row.Size = UDim2.new(1, 0, 0, 22)
+            Row.LayoutOrder = 3
+            Row.ZIndex = 901
+            Row.Parent = Popup
+            local RowLayout = Instance.new("UIListLayout", Row)
+            RowLayout.FillDirection = Enum.FillDirection.Horizontal
+            RowLayout.Padding = UDim.new(0, 6)
+            RowLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+            local Closed = false
+            local Connections = { }
+            local function Close(Choice)
+                if Closed then return end
+                Closed = true
+                for _, Connection in Connections do Connection:Disconnect() end
+                if Library.ConflictPopup == Popup then Library.ConflictPopup = nil end
+                local Tween = TweenService:Create(Popup, TweenInfo.new(0.12), {GroupTransparency = 1})
+                Tween:Play()
+                task.delay(0.14, function() Popup:Destroy() end)
+                if Choice and OnChoice then OnChoice(Choice) end
+            end
+
+            local function Chip(Label, Choice, Order, Accent)
+                local Button = Instance.new("TextButton")
+                Button.AutoButtonColor = false
+                Button.BorderSizePixel = 0
+                Button.BackgroundColor3 = Library.Theme["Tab"]
+                Button.FontFace = Library.Font
+                Button.TextSize = Library.FontSize - 1
+                Button.TextColor3 = Accent and Library.Theme["Accent"] or Library.Theme["Text"]
+                Button.Text = Label
+                Button.Size = UDim2.new(0, 0, 1, 0)
+                Button.AutomaticSize = Enum.AutomaticSize.X
+                Button.LayoutOrder = Order
+                Button.ZIndex = 902
+                Instance.new("UICorner", Button).CornerRadius = UDim.new(0, 4)
+                local ChipStroke = Instance.new("UIStroke", Button)
+                ChipStroke.Color = Library.Theme["Outline"]
+                ChipStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                local ChipPadding = Instance.new("UIPadding", Button)
+                ChipPadding.PaddingLeft, ChipPadding.PaddingRight = UDim.new(0, 8), UDim.new(0, 8)
+                Button.MouseEnter:Connect(function()
+                    TweenService:Create(Button, TweenInfo.new(0.12), {BackgroundColor3 = Library.Theme["Hovered Element"]}):Play()
+                    TweenService:Create(ChipStroke, TweenInfo.new(0.12), {Color = Library.Theme["Accent"]}):Play()
+                end)
+                Button.MouseLeave:Connect(function()
+                    TweenService:Create(Button, TweenInfo.new(0.12), {BackgroundColor3 = Library.Theme["Tab"]}):Play()
+                    TweenService:Create(ChipStroke, TweenInfo.new(0.12), {Color = Library.Theme["Outline"]}):Play()
+                end)
+                Button.MouseButton1Click:Connect(function() Close(Choice) end)
+                Button.Parent = Row
+            end
+
+            Chip("Replace", "Replace", 1, true)
+            Chip("Keep both", "Both", 2)
+            Chip("Cancel", "Cancel", 3)
+
+            local HolderInstance = Library.Holder.Instance
+            Popup.Parent = HolderInstance
+
+            local function Place()
+                -- same convention as the keybind mode menu: Holder ignores the GUI inset
+                local HolderSize = HolderInstance.AbsoluteSize
+                local AnchorPosition, AnchorSize = Anchor.AbsolutePosition, Anchor.AbsoluteSize
+                local X = AnchorPosition.X + AnchorSize.X - Width
+                local Y = AnchorPosition.Y + AnchorSize.Y + GuiInset + 6
+                X = math.clamp(X, 4, math.max(4, HolderSize.X - Width - 4))
+                Y = math.clamp(Y, 4, math.max(4, HolderSize.Y - 110))
+                Popup.Position = UDim2.fromOffset(X, Y)
+            end
+            Place()
+            Library.ConflictPopup = Popup
+            TweenService:Create(Popup, TweenInfo.new(0.15, Enum.EasingStyle.Quart), {GroupTransparency = 0}):Play()
+
+            -- click outside / Esc = cancel
+            table.insert(Connections, UserInputService.InputBegan:Connect(function(Input)
+                if Input.KeyCode == Enum.KeyCode.Escape then
+                    Close("Cancel")
+                elseif Input.UserInputType == Enum.UserInputType.MouseButton1 or Input.UserInputType == Enum.UserInputType.Touch then
+                    local Position, Size = Popup.AbsolutePosition, Popup.AbsoluteSize
+                    local Inside = Mouse.X >= Position.X and Mouse.X <= Position.X + Size.X
+                        and Mouse.Y >= Position.Y and Mouse.Y <= Position.Y + Size.Y
+                    if not Inside then task.defer(Close, "Cancel") end
+                end
+            end))
+            task.delay(20, function() Close("Cancel") end)
+            return Popup
         end
 
         Library.SetUIScale = function(Self, Scale)
@@ -11136,15 +12255,25 @@ end
                 return
             end
 
+            local Panel = Library:GetPanelTransparency()
             Window.Items.MainFrame.Instance.BackgroundTransparency = Transparency
-            Window.Items.Top.Instance.BackgroundTransparency = Transparency
+            Window.Items.Top.Instance.BackgroundTransparency = Panel
 
             for _, Page in Window.Pages do
                 for _, Section in Page.Sections or { } do
-                    Section.Items["Section"].Instance.BackgroundTransparency = Transparency
-                    Section.Items["Top"].Instance.BackgroundTransparency = Transparency
+                    Section.Items["Section"].Instance.BackgroundTransparency = Panel
+                    Section.Items["Top"].Instance.BackgroundTransparency = Panel
                 end
             end
+        end
+
+        -- sections are see-through while a menu background image is active
+        Library.GetPanelTransparency = function(Self)
+            local Value = Library.WindowOpacity or 0
+            if Library.MenuBackgroundActive then
+                Value = math.max(Value, Library.ThemeExtras.PanelTransparency or 0)
+            end
+            return Value
         end
 
         -- ---------- mimisense v29: native-position nine-slice soft glow ----------
@@ -12022,6 +13151,96 @@ end
                 ThemeReady = true
                 ThemingSection:Divider()
 
+                -- ---- font + menu background: saved inside theme profiles / theme strings ----
+                do
+                    local State = Library:LoadUIState()
+                    local E = Library.ThemeExtras
+                    local Ready = false
+
+                    -- last session's choice, unless a custom default theme profile already provided these values
+                    if not Library.ThemeExtrasFromProfile and type(State.ThemeExtras) == "table" then
+                        Library:ApplyThemeExtras(State.ThemeExtras, true)
+                    end
+                    E.Font = E.Font or Window.StartupFont or State.Font or "Figtree"
+
+                    ThemingSection:Dropdown({
+                        Name = "Font", Flag = "Theme/Font", Items = Library.FontChoices, Default = E.Font,
+                        Callback = function(Value)
+                            if not Ready or Library.ThemeExtrasSyncing then return end
+                            E.Font = Value
+                            Library:RefreshThemeExtras()
+                        end
+                    })
+
+                    ThemingSection:Textbox({
+                        Name = "Background image", Flag = "Theme/Background", Default = E.Background,
+                        Placeholder = "rbxassetid / GitHub / Discord link", Finished = true,
+                        Callback = function(Value)
+                            if not Ready or Library.ThemeExtrasSyncing then return end
+                            E.Background = tostring(Value or "")
+                            Library:RefreshThemeExtras()
+                        end
+                    })
+
+                    ThemingSection:Slider({
+                        Name = "Image opacity", Flag = "Theme/BackgroundOpacity", Min = 5, Max = 100, Suffix = "%",
+                        Default = math.floor((1 - E.BackgroundTransparency) * 100 + 0.5),
+                        Callback = function(Value)
+                            if not Ready or Library.ThemeExtrasSyncing then return end
+                            E.BackgroundTransparency = 1 - Value / 100
+                            Library:RefreshThemeExtras()
+                        end
+                    })
+
+                    ThemingSection:Slider({
+                        Name = "Panel transparency", Flag = "Theme/PanelTransparency", Min = 0, Max = 80, Suffix = "%",
+                        Default = math.floor(E.PanelTransparency * 100 + 0.5),
+                        Callback = function(Value)
+                            if not Ready or Library.ThemeExtrasSyncing then return end
+                            E.PanelTransparency = Value / 100
+                            Library:RefreshThemeExtras()
+                        end
+                    })
+
+                    ThemingSection:Dropdown({
+                        Name = "Image scale", Flag = "Theme/BackgroundScale", Items = Library.BackgroundScaleTypes,
+                        Default = E.BackgroundScale,
+                        Callback = function(Value)
+                            if not Ready or Library.ThemeExtrasSyncing then return end
+                            E.BackgroundScale = Value
+                            Library:RefreshThemeExtras()
+                        end
+                    })
+
+                    if type(getclipboard) == "function" then
+                        ThemingSection:Button({
+                            Name = "Paste image link from clipboard",
+                            Callback = function()
+                                local Ok, Text = pcall(getclipboard)
+                                Text = Ok and tostring(Text or "") or ""
+                                Text = (Text:gsub("^%s+", ""):gsub("%s+$", ""))
+                                if Text == "" then
+                                    Notify("Error", "Clipboard is empty", "Copy an image link first.")
+                                    return
+                                end
+                                E.Background = Text
+                                Library:RefreshThemeExtras()
+                            end
+                        })
+                    end
+
+                    ThemingSection:Button({
+                        Name = "Clear background",
+                        Callback = function()
+                            E.Background = ""
+                            Library:RefreshThemeExtras()
+                        end
+                    })
+
+                    ThemingSection:Divider()
+                    Ready = true
+                end
+
                 -- fixed order, a plain pairs() over the theme table reshuffles the rows every run
                 local Order = { "Background", "Inline", "Tab", "Text", "Inactive Text", "Accent", "Outline", "Hovered Element" }
                 local Seen = { }
@@ -12149,6 +13368,8 @@ end
                         end
 
                         Library:ApplyThemeData(ThemeData)
+                        local Extras = Library:ReadThemeExtras(Name)
+                        if Extras then Library:ApplyThemeExtras(Extras) end
                         Notify("Success", "Theme loaded", Name)
                     end
                 })
@@ -12369,8 +13590,13 @@ end
                 Interface:Slider({Name = "Opacity", Flag = "UI/Opacity", Min = 30, Max = 100,
                     Default = math.floor((1 - (State.Transparency or 0)) * 100 + 0.5), Suffix = "%",
                     Callback = function(Value) Library:SetWindowOpacity(1 - Value / 100) Save("Transparency", 1 - Value / 100) end})
-                Interface:Dropdown({Name = "Font", Flag = "UI/Font", Items = Library.FontChoices,
-                    Default = Window.StartupFont or State.Font or "Figtree", Callback = function(Value) Library:SetUIFont(Value) Save("Font", Value) end})
+                -- (Font moved to Theming: it is stored in theme profiles now)
+                Interface:Dropdown({Name = "Keybind Conflicts", Flag = "UI/KeybindConflict",
+                    Items = {"Ask", "Replace", "Allow duplicates"}, Default = State.KeybindConflict or "Ask",
+                    Callback = function(Value)
+                        Library.KeybindConflictMode = Value
+                        Save("KeybindConflict", Value)
+                    end})
                 Interface:Toggle({Name = "Theme Animation", Flag = "UI/ThemeAnimation",
                     Default = State.ThemeAnimation ~= false, Callback = function(Value)
                         Library.ThemeAnimation = Value
@@ -12634,6 +13860,9 @@ end
 
                 SilentTheme = false
             end
+
+            -- font + menu background (theme profile values or last session's)
+            Library:RefreshThemeExtras()
 
             return SettingsPage
         end
