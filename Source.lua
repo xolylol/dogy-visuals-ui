@@ -351,42 +351,21 @@ local Library = {
     Library.Themes = Themes
 
     -- ---------------------------------------------------------------
-    -- Theme extras: UI font + menu background image. They live inside theme
+    -- Theme extras: UI font. It lives inside theme
     -- profiles / exported theme strings next to the colors ("_extras").
     -- ---------------------------------------------------------------
-    Library.ThemeExtras = Library.ThemeExtras or {
-        Font = nil,                   -- "Figtree", "Gotham", ...
-        Background = "",              -- rbxassetid / github link / discord attachment link
-        BackgroundTransparency = 0.45,-- image transparency (0 = fully visible)
-        BackgroundScale = "Crop",     -- Crop / Fit / Stretch / Tile
-        PanelTransparency = 0.35,     -- how see-through sections are while a background is set
-    }
-    Library.ThemeExtraKeys = { "Font", "Background", "BackgroundTransparency", "BackgroundScale", "PanelTransparency" }
+    Library.ThemeExtras = Library.ThemeExtras or { Font = nil } -- UI font, stored inside theme profiles
+    Library.ThemeExtraKeys = { "Font" }
     Library.KeybindConflictMode = Library.KeybindConflictMode or "Ask"
 
     Library.SnapshotThemeExtras = function(Self)
-        local E = Library.ThemeExtras
-        return {
-            Font = E.Font or Library.CurrentFontName or "Figtree",
-            Background = tostring(E.Background or ""),
-            BackgroundTransparency = E.BackgroundTransparency,
-            BackgroundScale = E.BackgroundScale,
-            PanelTransparency = E.PanelTransparency,
-        }
+        return { Font = Library.ThemeExtras.Font or Library.CurrentFontName or "Figtree" }
     end
 
     -- Extras = table from a theme file / string. Silent = don't redraw. FromProfile = came from a theme profile.
     Library.ApplyThemeExtras = function(Self, Extras, Silent, FromProfile)
         if type(Extras) ~= "table" then return false end
-        local E = Library.ThemeExtras
-        if type(Extras.Font) == "string" and Extras.Font ~= "" then E.Font = Extras.Font end
-        if type(Extras.Background) == "string" then E.Background = Extras.Background end
-        if type(Extras.BackgroundTransparency) == "number" then E.BackgroundTransparency = math.clamp(Extras.BackgroundTransparency, 0, 1) end
-        if type(Extras.PanelTransparency) == "number" then E.PanelTransparency = math.clamp(Extras.PanelTransparency, 0, 0.8) end
-        if type(Extras.BackgroundScale) == "string" and (Extras.BackgroundScale == "Crop" or Extras.BackgroundScale == "Fit"
-            or Extras.BackgroundScale == "Stretch" or Extras.BackgroundScale == "Tile") then
-            E.BackgroundScale = Extras.BackgroundScale
-        end
+        if type(Extras.Font) == "string" and Extras.Font ~= "" then Library.ThemeExtras.Font = Extras.Font end
         if FromProfile then Library.ThemeExtrasFromProfile = true end
         if not Silent and Library.RefreshThemeExtras then Library:RefreshThemeExtras() end
         return true
@@ -400,8 +379,7 @@ local Library = {
         -- interface settings live in ui_state.json, not in configs
         ["UI/SearchBar"] = true, ["UI/Scale"] = true, ["UI/Opacity"] = true, ["UI/Font"] = true,
         ["UI/KeybindConflict"] = true,
-        ["Theme/Font"] = true, ["Theme/Background"] = true, ["Theme/BackgroundOpacity"] = true,
-        ["Theme/PanelTransparency"] = true, ["Theme/BackgroundScale"] = true,
+        ["Theme/Font"] = true,
         ["UI/NotifSide"] = true, ["UI/NotificationDuration"] = true, ["UI/ThemeAnimation"] = true, ["UI/RememberUI"] = true,
         ["UI/ScalePreset"] = true,
         ["UI/WatermarkFields"] = true, ["UI/KeybindListMode"] = true, ["UI/ImportString"] = true
@@ -3661,17 +3639,23 @@ end
                     InputBegan:Disconnect()
                     InputBegan = nil
 
-                    -- Interface > Keybind Conflicts: Ask / Replace / Allow duplicates
-                    local Mode = Library.KeybindConflictMode
-                    local Conflicts = (Mode ~= "Allow duplicates" and Picked ~= Enum.KeyCode.Unknown)
-                        and Library:FindKeybindConflicts(Keybind, Picked) or { }
+                    -- Interface > Keybind Conflicts: Ask / Replace / Allow duplicates.
+                    -- Any failure of the conflict check falls back to a plain Set: a pick can never get stuck.
+                    local Handled = false
+                    local Ok, Err = pcall(function()
+                        local Mode = Library.KeybindConflictMode
+                        if Mode == "Allow duplicates" or Picked == Enum.KeyCode.Unknown then return end
 
-                    if #Conflicts == 0 then
-                        Keybind:Set(Picked)
-                    elseif Mode == "Replace" then
-                        Library:UnbindKeybinds(Conflicts)
-                        Keybind:Set(Picked)
-                    else
+                        local Conflicts = Library:FindKeybindConflicts(Keybind, Picked)
+                        if #Conflicts == 0 then return end
+
+                        Handled = true
+                        if Mode == "Replace" then
+                            Library:UnbindKeybinds(Conflicts)
+                            Keybind:Set(Picked)
+                            return
+                        end
+
                         -- Ask: keep the old key until the user decides
                         Keybind.Picking = false
                         KeyButton.Text = Keybind.Value
@@ -3684,6 +3668,13 @@ end
                                 Keybind:Set(Picked)
                             end
                         end)
+                    end)
+
+                    if not Ok then
+                        warn("[mimisense] keybind conflict check failed: " .. tostring(Err))
+                    end
+                    if not Handled or not Ok then
+                        Keybind:Set(Picked)
                     end
                 end)
             end)
@@ -5253,7 +5244,10 @@ Library.Watermark = function(Self, Params)
             end
 
             local SkeletonFor, SkeletonJoints
+            local ESPHidden = false
             local function HideAllESP()
+                if ESPHidden then return end -- already hidden: nothing to touch this frame
+                ESPHidden = true
                 ESPObjects.BoxOutline.Visible = false
                 ESPObjects.Box.Visible = false
                 for _, Corner in ESPObjects.Corners do Corner.Visible = false end
@@ -5275,10 +5269,12 @@ Library.Watermark = function(Self, Params)
                     return
                 end
 
+                ESPHidden = false
                 local Origin = Root.Position
                 local Top = ESPProject(Origin + Vector3.new(0, ESPExtents.Top, 0))
                 local Bottom = ESPProject(Origin + Vector3.new(0, ESPExtents.Bottom, 0))
                 if not Top or not Bottom then
+                    ESPHidden = false
                     HideAllESP()
                     return
                 end
@@ -5293,25 +5289,28 @@ Library.Watermark = function(Self, Params)
                 local Box = ESPState.Box
                 local Full = Box.Enabled and Box.Style ~= "Corner"
                 local Corner = Box.Enabled and Box.Style == "Corner"
-                for _, Frame in {ESPObjects.BoxOutline, ESPObjects.Box} do
-                    Frame.Position = UDim2.fromOffset(Left, TopY)
-                    Frame.Size = UDim2.fromOffset(Width, Height)
-                    Frame.Visible = Full
-                end
+                local BoxPosition, BoxSize = UDim2.fromOffset(Left, TopY), UDim2.fromOffset(Width, Height)
+                ESPObjects.BoxOutline.Position, ESPObjects.BoxOutline.Size, ESPObjects.BoxOutline.Visible = BoxPosition, BoxSize, Full
+                ESPObjects.Box.Position, ESPObjects.Box.Size, ESPObjects.Box.Visible = BoxPosition, BoxSize, Full
                 ESPObjects.BoxStroke.Color = Box.Color
-                local Length = math.max(math.floor(math.min(Width, Height) * 0.28), 4)
-                local CornerRects = {
-                    {Left, TopY, Length, 1}, {Left, TopY, 1, Length},
-                    {Right - Length, TopY, Length, 1}, {Right - 1, TopY, 1, Length},
-                    {Left, BottomY - 1, Length, 1}, {Left, BottomY - Length, 1, Length},
-                    {Right - Length, BottomY - 1, Length, 1}, {Right - 1, BottomY - Length, 1, Length},
-                }
-                for Index, Frame in ESPObjects.Corners do
-                    local Rect = CornerRects[Index]
-                    Frame.Position = UDim2.fromOffset(Rect[1], Rect[2])
-                    Frame.Size = UDim2.fromOffset(Rect[3], Rect[4])
-                    Frame.BackgroundColor3 = Box.Color
-                    Frame.Visible = Corner
+                local Corners = ESPObjects.Corners
+                for Index = 1, 8 do Corners[Index].Visible = Corner end
+                if Corner then
+                    local Length = math.max(math.floor(math.min(Width, Height) * 0.28), 4)
+                    local function Place(Index, X, Y, W, H)
+                        local Frame = Corners[Index]
+                        Frame.Position = UDim2.fromOffset(X, Y)
+                        Frame.Size = UDim2.fromOffset(W, H)
+                        Frame.BackgroundColor3 = Box.Color
+                    end
+                    Place(1, Left, TopY, Length, 1)
+                    Place(2, Left, TopY, 1, Length)
+                    Place(3, Right - Length, TopY, Length, 1)
+                    Place(4, Right - 1, TopY, 1, Length)
+                    Place(5, Left, BottomY - 1, Length, 1)
+                    Place(6, Left, BottomY - Length, 1, Length)
+                    Place(7, Right - Length, BottomY - 1, Length, 1)
+                    Place(8, Right - 1, BottomY - Length, 1, Length)
                 end
 
                 -- name / distance
@@ -11277,10 +11276,11 @@ end
                 if Frame.TimeLength > 0 then
                     local Alpha = math.clamp((Mouse.X - Track.AbsolutePosition.X) / math.max(Track.AbsoluteSize.X, 1), 0, 1)
                     Frame.TimePosition = Alpha * Frame.TimeLength
+                    Fill.Size = UDim2.new(Alpha, 0, 1, 0)
                 end
             end)
-            Library:Connect(RunService.RenderStepped, function()
-                if not Frame.Parent or not Items["Video"].Instance.Visible then return end
+            Library:Connect(RunService.Heartbeat, function()
+                if not Frame.Parent or not Frame.Playing and Play.Text == "Play" or not Items["Video"].Instance.Visible then return end
                 Play.Text = Frame.Playing and "Pause" or "Play"
                 if Frame.TimeLength > 0 then
                     Fill.Size = UDim2.new(math.clamp(Frame.TimePosition / Frame.TimeLength, 0, 1), 0, 1, 0)
@@ -11605,10 +11605,9 @@ end
                 Self.Sections = Self.Sections or { }
                 table.insert(Self.Sections, Section)
 
-                local PanelTransparency = Library:GetPanelTransparency()
-                if PanelTransparency > 0 then
-                    Section.Items["Section"].Instance.BackgroundTransparency = PanelTransparency
-                    Section.Items["Top"].Instance.BackgroundTransparency = PanelTransparency
+                if Library.WindowOpacity and Library.WindowOpacity > 0 then
+                    Section.Items["Section"].Instance.BackgroundTransparency = Library.WindowOpacity
+                    Section.Items["Top"].Instance.BackgroundTransparency = Library.WindowOpacity
                 end
 
                 function Section:ResetAll()
@@ -11948,113 +11947,23 @@ end
             return ""
         end
 
-        -- ---------- menu background image (part of the theme) ----------
-        Library.BackgroundScaleTypes = { "Crop", "Fit", "Stretch", "Tile" }
-
-        Library.SetMenuBackground = function(Self)
-            local E = Library.ThemeExtras
-            local Window = Library.ActiveWindow
-            local MainItem = Window and Window.Items and Window.Items.MainFrame
-            local Main = MainItem and MainItem.Instance
-            if not Main then return end
-
-            Library.BackgroundToken = (Library.BackgroundToken or 0) + 1
-            local Token = Library.BackgroundToken
-            local Source = TrimText(E.Background)
-
-            local function Look(Image)
-                local Scale = ({
-                    Crop = Enum.ScaleType.Crop, Fit = Enum.ScaleType.Fit,
-                    Stretch = Enum.ScaleType.Stretch, Tile = Enum.ScaleType.Tile
-                })[E.BackgroundScale] or Enum.ScaleType.Crop
-                Image.ScaleType = Scale
-                if Scale == Enum.ScaleType.Tile then Image.TileSize = UDim2.fromOffset(256, 256) end
-                TweenService:Create(Image, TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
-                    {ImageTransparency = E.BackgroundTransparency}):Play()
-            end
-
-            local Existing = Main:FindFirstChild("MimiMenuBackground")
-
-            if Source == "" then
-                Library.MenuBackgroundActive = false
-                if Existing then
-                    local Tween = TweenService:Create(Existing, TweenInfo.new(0.25), {ImageTransparency = 1})
-                    Tween:Play()
-                    task.delay(0.3, function()
-                        if Token == Library.BackgroundToken and Existing.Parent then Existing:Destroy() end
-                    end)
-                end
-                Library:SetWindowOpacity(Library.WindowOpacity or 0)
-                return
-            end
-
-            -- opacity / scale only changed: no need to download again
-            if Existing and Existing:GetAttribute("Source") == Source then
-                Library.MenuBackgroundActive = true
-                Look(Existing)
-                Library:SetWindowOpacity(Library.WindowOpacity or 0)
-                return
-            end
-
-            task.spawn(function()
-                local Ok, Asset, Reason = pcall(function() return Library:ResolveImageSource(Source) end)
-                if Token ~= Library.BackgroundToken then return end
-                if not Ok or type(Asset) ~= "string" or Asset == "" then
-                    Library:Notification({
-                        Name = "Background",
-                        Description = "Couldn't load the image (" .. tostring(Ok and Reason or Asset) .. "). Use rbxassetid, a GitHub link or a Discord attachment link.",
-                        Duration = 6
-                    })
-                    return
-                end
-
-                local Image = Main:FindFirstChild("MimiMenuBackground")
-                if not Image then
-                    Image = Instance.new("ImageLabel")
-                    Image.Name = "MimiMenuBackground"
-                    Image.BackgroundTransparency = 1
-                    Image.BorderSizePixel = 0
-                    Image.Active = false
-                    Image.Interactable = false
-                    Image.ZIndex = 0
-                    Image.Size = UDim2.fromScale(1, 1)
-                    Image.ImageTransparency = 1
-                    Instance.new("UICorner", Image).CornerRadius = UDim.new(0, 10)
-                    Image.Parent = Main
-                end
-                Image.Image = Asset
-                Image:SetAttribute("Source", Source)
-                Library.MenuBackgroundActive = true
-                Look(Image)
-                Library:SetWindowOpacity(Library.WindowOpacity or 0)
-            end)
-        end
-
-        -- redraw font + background from Library.ThemeExtras, sync the settings controls, remember them
+        -- font stored in Library.ThemeExtras: redraw, sync the settings dropdown, remember it
         Library.RefreshThemeExtras = function(Self)
-            local E = Library.ThemeExtras
+            local Font = Library.ThemeExtras.Font
 
-            if E.Font and Library.CurrentFontName ~= E.Font then
-                Library:SetUIFont(E.Font)
+            if Font and Library.CurrentFontName ~= Font then
+                Library:SetUIFont(Font)
             end
 
-            Library.ThemeExtrasSyncing = true
-            local Sync = function(Flag, Value)
-                local Setter = Library.SetFlags and Library.SetFlags[Flag]
-                if Setter then pcall(Setter, Value) end
+            local Setter = Library.SetFlags and Library.SetFlags["Theme/Font"]
+            if Setter then
+                Library.ThemeExtrasSyncing = true
+                pcall(Setter, Font or "Figtree")
+                Library.ThemeExtrasSyncing = false
             end
-            Sync("Theme/Font", E.Font or "Figtree")
-            Sync("Theme/Background", E.Background or "")
-            Sync("Theme/BackgroundOpacity", math.floor((1 - E.BackgroundTransparency) * 100 + 0.5))
-            Sync("Theme/PanelTransparency", math.floor(E.PanelTransparency * 100 + 0.5))
-            Sync("Theme/BackgroundScale", E.BackgroundScale)
-            Library.ThemeExtrasSyncing = false
-
-            Library:SetMenuBackground()
 
             if Library.UIStateLoaded then
-                local State = Library:LoadUIState()
-                State.ThemeExtras = Library:SnapshotThemeExtras()
+                Library:LoadUIState().ThemeExtras = Library:SnapshotThemeExtras()
                 Library:QueueSaveUIState()
             end
         end
@@ -12255,25 +12164,15 @@ end
                 return
             end
 
-            local Panel = Library:GetPanelTransparency()
             Window.Items.MainFrame.Instance.BackgroundTransparency = Transparency
-            Window.Items.Top.Instance.BackgroundTransparency = Panel
+            Window.Items.Top.Instance.BackgroundTransparency = Transparency
 
             for _, Page in Window.Pages do
                 for _, Section in Page.Sections or { } do
-                    Section.Items["Section"].Instance.BackgroundTransparency = Panel
-                    Section.Items["Top"].Instance.BackgroundTransparency = Panel
+                    Section.Items["Section"].Instance.BackgroundTransparency = Transparency
+                    Section.Items["Top"].Instance.BackgroundTransparency = Transparency
                 end
             end
-        end
-
-        -- sections are see-through while a menu background image is active
-        Library.GetPanelTransparency = function(Self)
-            local Value = Library.WindowOpacity or 0
-            if Library.MenuBackgroundActive then
-                Value = math.max(Value, Library.ThemeExtras.PanelTransparency or 0)
-            end
-            return Value
         end
 
         -- ---------- mimisense v29: native-position nine-slice soft glow ----------
@@ -13168,71 +13067,6 @@ end
                         Callback = function(Value)
                             if not Ready or Library.ThemeExtrasSyncing then return end
                             E.Font = Value
-                            Library:RefreshThemeExtras()
-                        end
-                    })
-
-                    ThemingSection:Textbox({
-                        Name = "Background image", Flag = "Theme/Background", Default = E.Background,
-                        Placeholder = "rbxassetid / GitHub / Discord link", Finished = true,
-                        Callback = function(Value)
-                            if not Ready or Library.ThemeExtrasSyncing then return end
-                            E.Background = tostring(Value or "")
-                            Library:RefreshThemeExtras()
-                        end
-                    })
-
-                    ThemingSection:Slider({
-                        Name = "Image opacity", Flag = "Theme/BackgroundOpacity", Min = 5, Max = 100, Suffix = "%",
-                        Default = math.floor((1 - E.BackgroundTransparency) * 100 + 0.5),
-                        Callback = function(Value)
-                            if not Ready or Library.ThemeExtrasSyncing then return end
-                            E.BackgroundTransparency = 1 - Value / 100
-                            Library:RefreshThemeExtras()
-                        end
-                    })
-
-                    ThemingSection:Slider({
-                        Name = "Panel transparency", Flag = "Theme/PanelTransparency", Min = 0, Max = 80, Suffix = "%",
-                        Default = math.floor(E.PanelTransparency * 100 + 0.5),
-                        Callback = function(Value)
-                            if not Ready or Library.ThemeExtrasSyncing then return end
-                            E.PanelTransparency = Value / 100
-                            Library:RefreshThemeExtras()
-                        end
-                    })
-
-                    ThemingSection:Dropdown({
-                        Name = "Image scale", Flag = "Theme/BackgroundScale", Items = Library.BackgroundScaleTypes,
-                        Default = E.BackgroundScale,
-                        Callback = function(Value)
-                            if not Ready or Library.ThemeExtrasSyncing then return end
-                            E.BackgroundScale = Value
-                            Library:RefreshThemeExtras()
-                        end
-                    })
-
-                    if type(getclipboard) == "function" then
-                        ThemingSection:Button({
-                            Name = "Paste image link from clipboard",
-                            Callback = function()
-                                local Ok, Text = pcall(getclipboard)
-                                Text = Ok and tostring(Text or "") or ""
-                                Text = (Text:gsub("^%s+", ""):gsub("%s+$", ""))
-                                if Text == "" then
-                                    Notify("Error", "Clipboard is empty", "Copy an image link first.")
-                                    return
-                                end
-                                E.Background = Text
-                                Library:RefreshThemeExtras()
-                            end
-                        })
-                    end
-
-                    ThemingSection:Button({
-                        Name = "Clear background",
-                        Callback = function()
-                            E.Background = ""
                             Library:RefreshThemeExtras()
                         end
                     })
